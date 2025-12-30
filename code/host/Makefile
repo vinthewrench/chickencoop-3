@@ -24,6 +24,7 @@ VPATH := \
 	. \
 	../src \
 	../src/console \
+	../src/devices \
 	platform
 
 # ------------------------------------------------------------
@@ -38,13 +39,19 @@ SRCS := \
 	console.cpp \
 	console_cmds.cpp \
 	console_time.cpp \
+	config_events.cpp \
+	scheduler.cpp \
 	mini_printf.cpp \
+	devices.cpp \
+	door_device.cpp \
+	foo_device.cpp \
 	door_host.cpp \
 	lock_host.cpp \
 	console_io_host.cpp \
 	config_sw_host.cpp \
 	config_host.cpp \
 	rtc_host.cpp \
+	rtc_common.cpp \
 	uptime_host.cpp
 
 # ------------------------------------------------------------

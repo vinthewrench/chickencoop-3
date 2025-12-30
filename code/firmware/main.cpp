@@ -12,15 +12,20 @@
  * Updated: 2025-12-29
  */
 
-#include "console/console.h"
-#include "uart.h"
-#include "uptime.h"
-#include "config_sw.h"
+ #include "config.h"
+ #include "config_sw.h"
+ #include "console/console.h"
+ #include "uart.h"
+ #include "uptime.h"
 
 int main(void)
 {
     uart_init();
     uptime_init();
+
+    /* Load persistent configuration (EEPROM, defaults on failure) */
+    bool cfg_ok = config_load(&g_cfg);
+    (void)cfg_ok;   /* unused for now */
 
     static bool config_consumed = false;
 
@@ -28,7 +33,7 @@ int main(void)
      * CONFIG is a boot-time service session selected by a slide switch.
      * The switch is sampled once per boot via config_sw_state().
      */
-     // Latch CONFIG to one entry per boot, even if the switch remains asserted.
+    // Latch CONFIG to one entry per boot, even if the switch remains asserted.
 
     if (config_sw_state() && !config_consumed) {
         config_consumed = true;

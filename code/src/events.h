@@ -26,9 +26,11 @@ typedef uint8_t refnum_t;
 /* Time reference used for resolving events */
 enum TimeRef : uint8_t {
     REF_NONE = 0,      /* Disabled rule */
-    REF_MIDNIGHT,      /* 00:00 local */
-    REF_SOLAR_STD,     /* Standard sunrise/sunset */
-    REF_SOLAR_CIV      /* Civil twilight sunrise/sunset */
+    REF_MIDNIGHT,
+    REF_SOLAR_STD_RISE,
+    REF_SOLAR_STD_SET,
+    REF_SOLAR_CIV_RISE,
+    REF_SOLAR_CIV_SET
 };
 
 /* Declarative time expression */

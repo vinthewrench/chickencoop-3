@@ -14,6 +14,7 @@
 
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include "console_io.h"
 
 /* print unsigned int with optional zero padding */
@@ -48,22 +49,21 @@ static void put_int_pad(int v, unsigned int width, char pad)
     }
 }
 
-static void put_latlon(double v)
+static void put_latlon_e4(int32_t v)
 {
     if (v < 0) {
         console_putc('-');
         v = -v;
-    } else {
-        console_putc('+');
     }
 
-    int whole = (int)v;
-    int frac  = (int)((v - whole) * 10000.0 + 0.5);
+    int32_t deg = v / 10000;
+    int32_t frac = v % 10000;
 
-    put_uint_pad((unsigned)whole, 0, ' ');
+    put_int_pad(deg, 0, ' ');
     console_putc('.');
-    put_uint_pad((unsigned)frac, 4, '0');
+    put_uint_pad((unsigned int)frac, 4, '0');
 }
+
 
 void mini_printf(const char *fmt, ...)
 {
@@ -110,8 +110,8 @@ void mini_printf(const char *fmt, ...)
             break;
 
         case 'L':
-            put_latlon(va_arg(ap, double));
-            break;
+            put_latlon_e4(va_arg(ap, int32_t));
+             break;
 
         case '%':
             console_putc('%');

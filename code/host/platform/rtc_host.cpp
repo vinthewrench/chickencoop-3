@@ -1,29 +1,48 @@
-/*
- * rtc.cpp (host stub)
- *
- * Project: Chicken Coop Controller
- * Purpose: Host-side RTC stub for scheduler testing
- *
- * Notes:
- *  - Mirrors firmware RTC API
- *  - No real-time behavior; values are software-controlled
- *
- * Updated: 2025-12-29
- */
-
 #include "rtc.h"
 
-static bool g_rtc_valid = false;
+#include <time.h>
 
-static int g_year   = 2025;
-static int g_month  = 1;
-static int g_day    = 1;
-static int g_hour   = 12;
-static int g_minute = 0;
-static int g_second = 0;
+/*
+ * Host RTC stub
+ * - Always valid
+ * - Initialized from host system time
+ * - Timezone handled by OS
+ */
 
-void rtc_get_time(int *year,int *month,int *day,int *hour,int *minute,int *second)
+static bool g_rtc_valid = true;
+
+static int g_year;
+static int g_month;
+static int g_day;
+static int g_hour;
+static int g_minute;
+static int g_second;
+
+/* Pull current local time from host */
+static void rtc_sync_from_host(void)
 {
+    time_t now = time(NULL);
+    struct tm lt;
+
+#if defined(_POSIX_THREAD_SAFE_FUNCTIONS)
+    localtime_r(&now, &lt);
+#else
+    lt = *localtime(&now);
+#endif
+
+    g_year   = lt.tm_year + 1900;
+    g_month  = lt.tm_mon + 1;
+    g_day    = lt.tm_mday;
+    g_hour   = lt.tm_hour;
+    g_minute = lt.tm_min;
+    g_second = lt.tm_sec;
+}
+
+void rtc_get_time(int *year,int *month,int *day,
+                  int *hour,int *minute,int *second)
+{
+    rtc_sync_from_host();
+
     *year   = g_year;
     *month  = g_month;
     *day    = g_day;
@@ -34,6 +53,7 @@ void rtc_get_time(int *year,int *month,int *day,int *hour,int *minute,int *secon
 
 void rtc_set_time(int y,int mo,int d,int h,int m,int s)
 {
+    /* Allow tests to override time */
     g_year   = y;
     g_month  = mo;
     g_day    = d;
@@ -45,7 +65,7 @@ void rtc_set_time(int y,int mo,int d,int h,int m,int s)
 
 bool rtc_time_is_set(void)
 {
-    return g_rtc_valid;
+    return true;
 }
 
 bool rtc_alarm_set_hm(uint8_t hour, uint8_t minute)

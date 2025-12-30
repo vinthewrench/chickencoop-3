@@ -9,11 +9,31 @@
  *  - Must not include AVR- or platform-specific headers
  *  - All fields initialized explicitly
  *
- * Updated: 2025-12-29
+ * Updated: 2025-12-30
  */
 
 #include "config.h"
 #include <string.h>
+
+/* Global runtime configuration */
+struct config g_cfg;
+/*
+ * Fletcher-16 checksum
+ * Used for config persistence integrity (host + AVR)
+ */
+uint16_t config_fletcher16(const void *data, size_t len)
+{
+    const uint8_t *p = (const uint8_t *)data;
+    uint16_t sum1 = 0;
+    uint16_t sum2 = 0;
+
+    while (len--) {
+        sum1 = (sum1 + *p++) % 255;
+        sum2 = (sum2 + sum1) % 255;
+    }
+
+    return (sum2 << 8) | sum1;
+}
 
 void config_defaults(struct config *cfg)
 {
@@ -25,20 +45,9 @@ void config_defaults(struct config *cfg)
     cfg->tz        = -6;   /* CST */
     cfg->honor_dst = 1;
 
-    cfg->latitude  = 34.4653;
-    cfg->longitude = -93.3628;
-
-    /* ---- Door rules defaults ---- */
-    /* These must match what your UI expects */
-
-    /* Example (adjust to your actual struct):
-     *
-     * cfg->open_rule.type   = DOOR_SOLAR;
-     * cfg->open_rule.offset = 0;
-     *
-     * cfg->close_rule.type   = DOOR_CIVIL;
-     * cfg->close_rule.offset = 0;
-     */
+    /* 34.4653°, -93.3628° */
+    cfg->latitude_e4  =  344653;
+    cfg->longitude_e4 = -933628;
 
     /* ---- Any future fields MUST be initialized here ---- */
 }

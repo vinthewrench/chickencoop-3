@@ -1,5 +1,39 @@
 
-// src/console/console_cmds.cpp
+/*
+ * console_cmds.cpp
+ *
+ * Project: Chicken Coop Controller
+ * Purpose: Console command definitions and dispatch
+ *
+ * Design notes:
+ *  - This file defines the interactive CONFIG/console command set.
+ *  - Command metadata (names, help text, argument limits) is treated as
+ *    read-only data and MUST NOT consume SRAM on AVR targets.
+ *
+ * Memory model:
+ *  - On AVR builds, all command strings and the command table itself are
+ *    placed in flash (PROGMEM) to preserve scarce SRAM.
+ *  - On host builds, the same source compiles to normal C strings for
+ *    simplicity and debuggability.
+ *
+ * Implementation strategy:
+ *  - An X-macro (CMD_LIST) is used as the single source of truth for
+ *    command definitions.
+ *  - That list is expanded twice:
+ *      1) To emit named string objects (flash on AVR, RAM on host)
+ *      2) To emit the command table itself
+ *  - This avoids illegal use of PSTR() in C++ global initializers while
+ *    keeping behavior identical across platforms.
+ *
+ * Constraints:
+ *  - No dynamic allocation
+ *  - Deterministic behavior
+ *  - Offline operation
+ *  - AVR SRAM is a hard limit, not a suggestion
+ *
+ * Updated: 2025-12-30
+ */
+
 
 #include "console/console_io.h"
 #include "console/console.h"
@@ -8,12 +42,15 @@
 #include "console_time.h"
 
 #include "events.h"
+#include "config_events.h"
 #include "solar.h"
 #include "rtc.h"
 #include "config.h"
 #include "lock.h"
 #include "door.h"
 #include "uptime.h"
+
+#include "devices/devices.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -27,7 +64,6 @@ extern bool want_exit;
 //   - save commits to EEPROM and programs RTC
 // -----------------------------------------------------------------------------
 
-static struct config g_cfg;
 static bool g_cfg_loaded = false;
 static bool g_cfg_dirty = false;
 
@@ -38,6 +74,25 @@ static bool g_have_time = false;
 static uint32_t g_time_set_uptime_s = 0;
 
 
+/* Command handler forward declarations */
+static void console_help(int argc, char **argv);
+static void cmd_version(int argc, char **argv);
+static void cmd_time(int argc, char **argv);
+static void cmd_schedule(int argc, char **argv);
+static void cmd_solar(int argc, char **argv);
+static void cmd_set(int argc, char **argv);
+static void cmd_config(int argc, char **argv);
+static void cmd_save(int argc, char **argv);
+static void cmd_timeout(int argc, char **argv);
+static void cmd_door(int argc, char **argv);
+static void cmd_lock(int argc, char **argv);
+static void cmd_run(int argc, char **argv);
+static void cmd_event(int argc, char **argv);
+static void cmd_next(int argc, char **argv);
+
+#ifdef HOST_BUILD
+static void cmd_sleep(int argc, char **argv);
+#endif
 // -----------------------------------------------------------------------------
 // Small helpers
 // -----------------------------------------------------------------------------
@@ -170,29 +225,85 @@ static bool parse_time_hms(const char *s,int *h,int *m,int *sec)
 
 static void when_print(const struct When *w)
 {
-    if (w->ref == REF_NONE) {
-        console_puts("DISABLED");
+    if (!w) {
+        console_puts("?");
         return;
     }
 
-    if (w->ref == REF_MIDNIGHT) {
+    switch (w->ref) {
+
+    case REF_NONE:
+        console_puts("DISABLED");
+        return;
+
+    case REF_MIDNIGHT: {
         int h = w->offset_minutes / 60;
         int m = abs(w->offset_minutes % 60);
         mini_printf("%02d:%02d", h, m);
         return;
     }
 
-    const char *name =
-        (w->ref == REF_SOLAR_STD) ? "SOLAR" :
-        (w->ref == REF_SOLAR_CIV) ? "CIVIL" :
-        "?";
+    case REF_SOLAR_STD_RISE:
+        mini_printf("SOLAR SUNRISE %c%d",
+                    (w->offset_minutes < 0) ? '-' : '+',
+                    abs(w->offset_minutes));
+        return;
 
-    mini_printf("%s %c%d",
-        name,
-        (w->offset_minutes < 0) ? '-' : '+',
-        abs(w->offset_minutes));
+    case REF_SOLAR_STD_SET:
+        mini_printf("SOLAR SUNSET %c%d",
+                    (w->offset_minutes < 0) ? '-' : '+',
+                    abs(w->offset_minutes));
+        return;
+
+    case REF_SOLAR_CIV_RISE:
+        mini_printf("CIVIL DAWN %c%d",
+                    (w->offset_minutes < 0) ? '-' : '+',
+                    abs(w->offset_minutes));
+        return;
+
+    case REF_SOLAR_CIV_SET:
+        mini_printf("CIVIL DUSK %c%d",
+                    (w->offset_minutes < 0) ? '-' : '+',
+                    abs(w->offset_minutes));
+        return;
+
+    default:
+        console_puts("?");
+        return;
+    }
 }
 
+static bool parse_signed_int(const char *s, int *out)
+{
+    if (!s || !*s)
+        return false;
+
+    char *end = NULL;
+    long v = strtol(s, &end, 10);
+
+    if (*end != '\0')
+        return false;
+
+    if (v < -32768 || v > 32767)
+        return false;
+
+    *out = (int)v;
+    return true;
+}
+
+
+// -----------------------------------------------------------------------------
+// Enum-to-string helpers
+// -----------------------------------------------------------------------------
+
+static const char *action_name(enum Action a)
+{
+    switch (a) {
+    case ACTION_ON:  return "on";
+    case ACTION_OFF: return "off";
+    default:         return "?";
+    }
+}
 
 // -----------------------------------------------------------------------------
 // Commands
@@ -211,14 +322,51 @@ static void cmd_version(int,char**)
 
 static void cmd_time(int, char **)
 {
-    int y,mo,d,h,m,s;
+    int y, mo, d, h, m, s;
+
+    /* If time is staged, show staged time advancing */
+    if (g_have_date && g_have_time) {
+
+        y = g_date_y;
+        mo = g_date_mo;
+        d = g_date_d;
+        h = g_time_h;
+        m = g_time_m;
+        s = g_time_s;
+
+        uint32_t now_s = uptime_seconds();
+        uint32_t delta_s = now_s - g_time_set_uptime_s;
+
+        /* Add elapsed seconds (same logic as save) */
+        s += (int)(delta_s % 60);
+        delta_s /= 60;
+        m += (int)(delta_s % 60);
+        delta_s /= 60;
+        h += (int)(delta_s % 24);
+        delta_s /= 24;
+
+        while (s >= 60) { s -= 60; m++; }
+        while (m >= 60) { m -= 60; h++; }
+        while (h >= 24) { h -= 24; delta_s++; }
+
+        while (delta_s--) {
+            advance_one_day(&y, &mo, &d);
+        }
+
+        print_datetime_ampm(y, mo, d, h, m, s);
+        return;
+    }
+
+    /* Otherwise fall back to RTC */
     if (!rtc_time_is_set()) {
         console_puts("TIME: NOT SET\n");
         return;
     }
-    rtc_get_time(&y,&mo,&d,&h,&m,&s);
-    print_datetime_ampm(y,mo,d,h,m,s);
+
+    rtc_get_time(&y, &mo, &d, &h, &m, &s);
+    print_datetime_ampm(y, mo, d, h, m, s);
 }
+
 
 
 static void cmd_solar(int argc, char **argv)
@@ -253,10 +401,14 @@ static void cmd_solar(int argc, char **argv)
     if (g_cfg.honor_dst && is_us_dst(y, mo, d, h))
         effective_tz += 1;
 
+
+    float lat = g_cfg.latitude_e4 * 1e-4f;
+    float lon = g_cfg.longitude_e4 * 1e-4f;
+
     struct solar_times sol;
     if (!solar_compute(y, mo, d,
-                       g_cfg.latitude,
-                       g_cfg.longitude,
+                       lat,
+                       lon,
                        effective_tz,
                        &sol)) {
         console_puts("SOLAR: UNAVAILABLE\n");
@@ -342,22 +494,17 @@ static void cmd_schedule(int argc, char **argv)
         effective_tz += 1;
     }
 
+    float lat = g_cfg.latitude_e4 * 1e-4f;
+    float lon = g_cfg.longitude_e4 * 1e-4f;
+
     if (!solar_compute(y, mo, d,
-                       g_cfg.latitude,
-                       g_cfg.longitude,
+                       lat,
+                       lon,
                        effective_tz,
                        &sol)) {
         console_puts("SOLAR: UNAVAILABLE\n");
         return;
     }
-
-    console_puts("OPEN : ");
-    when_print(&g_cfg.door.open_when);
-    console_putc('\n');
-
-    console_puts("CLOSE: ");
-    when_print(&g_cfg.door.close_when);
-    console_putc('\n');
 }
 
 
@@ -408,12 +555,12 @@ static void cmd_set(int argc, char **argv)
 
     // set lat +/-DD.DDDD
     if (!strcmp(argv[1], "lat") && argc == 3) {
-        double v = atof(argv[2]);
-        if (v < -90.0 || v > 90.0) {
+        float v = atof(argv[2]);
+        if (v < -90.0f || v > 90.0f) {
             console_puts("ERROR\n");
             return;
         }
-        g_cfg.latitude = v;
+        g_cfg.latitude_e4 = (int32_t)(v * 10000.0f);
         g_cfg_dirty = true;
         console_puts("OK\n");
         return;
@@ -421,12 +568,12 @@ static void cmd_set(int argc, char **argv)
 
     // set lon +/-DDD.DDDD
     if (!strcmp(argv[1], "lon") && argc == 3) {
-        double v = atof(argv[2]);
-        if (v < -180.0 || v > 180.0) {
+        float v = atof(argv[2]);
+        if (v < -180.0f || v > 180.0f) {
             console_puts("ERROR\n");
             return;
         }
-        g_cfg.longitude = v;
+        g_cfg.longitude_e4 = (int32_t)(v * 10000.0f);
         g_cfg_dirty = true;
         console_puts("OK\n");
         return;
@@ -460,68 +607,6 @@ static void cmd_set(int argc, char **argv)
             return;
         }
         console_puts("ERROR\n");
-        return;
-    }
-
-    // set door open|close HH:MM
-    if (!strcmp(argv[1], "door") && argc == 4) {
-        bool is_open = !strcmp(argv[2], "open");
-        bool is_close = !strcmp(argv[2], "close");
-
-        if (!is_open && !is_close) {
-            console_puts("?\n");
-            return;
-        }
-
-        int hh, mm;
-        if (!parse_time_hm(argv[3], &hh, &mm)) {
-            console_puts("ERROR\n");
-            return;
-        }
-
-        struct When *w = is_open
-            ? &g_cfg.door.open_when
-            : &g_cfg.door.close_when;
-
-        w->ref = REF_MIDNIGHT;
-        w->offset_minutes = (int16_t)(hh * 60 + mm);
-
-        g_cfg_dirty = true;
-        console_puts("OK\n");
-        return;
-    }
-
-    // set door open|close solar|civil +/-MIN
-    if (!strcmp(argv[1], "door") && argc == 5) {
-        bool is_open = !strcmp(argv[2], "open");
-        bool is_close = !strcmp(argv[2], "close");
-
-        if (!is_open && !is_close) {
-            console_puts("?\n");
-            return;
-        }
-
-        struct When *w = is_open
-            ? &g_cfg.door.open_when
-            : &g_cfg.door.close_when;
-
-        int offset = atoi(argv[4]);
-
-        if (!strcmp(argv[3], "solar")) {
-            w->ref = REF_SOLAR_STD;
-            w->offset_minutes = (int16_t)offset;
-        }
-        else if (!strcmp(argv[3], "civil")) {
-            w->ref = REF_SOLAR_CIV;
-            w->offset_minutes = (int16_t)offset;
-        }
-        else {
-            console_puts("?\n");
-            return;
-        }
-
-        g_cfg_dirty = true;
-        console_puts("OK\n");
         return;
     }
 
@@ -632,10 +717,24 @@ static void cmd_lock(int argc, char **argv)
     console_puts("?\n");
 }
 
-
 static void cmd_config(int, char **)
 {
     ensure_cfg_loaded();
+
+#ifdef HOST_BUILD
+    /*
+     * Host initialization only:
+     * If no staged date/time exists, seed shadow from RTC once.
+     * Never overwrite staged intent.
+     */
+    if (rtc_time_is_set() && (!g_have_date || !g_have_time)) {
+        rtc_get_time(&g_date_y, &g_date_mo, &g_date_d,
+                     &g_time_h, &g_time_m, &g_time_s);
+        g_have_date = true;
+        g_have_time = true;
+        g_time_set_uptime_s = uptime_seconds();
+    }
+#endif
 
     if (g_cfg_dirty)
         console_puts("CONFIG (UNSAVED)\n\n");
@@ -651,27 +750,48 @@ static void cmd_config(int, char **)
 
     /* time */
     console_puts("time : ");
-    if (g_have_time)
-        mini_printf("%02d:%02d:%02d\n", g_time_h, g_time_m, g_time_s);
-    else
+    if (g_have_date && g_have_time) {
+
+        int y  = g_date_y;
+        int mo = g_date_mo;
+        int d  = g_date_d;
+        int h  = g_time_h;
+        int m  = g_time_m;
+        int s  = g_time_s;
+
+        uint32_t now_s   = uptime_seconds();
+        uint32_t delta_s = now_s - g_time_set_uptime_s;
+
+        /* Apply elapsed time (same math as save, display-only) */
+        s += (int)(delta_s % 60);
+        delta_s /= 60;
+        m += (int)(delta_s % 60);
+        delta_s /= 60;
+        h += (int)(delta_s % 24);
+        delta_s /= 24;
+
+        while (s >= 60) { s -= 60; m++; }
+        while (m >= 60) { m -= 60; h++; }
+        while (h >= 24) { h -= 24; delta_s++; }
+
+        while (delta_s--) {
+            advance_one_day(&y, &mo, &d);
+        }
+
+        mini_printf("%02d:%02d:%02d\n", h, m, s);
+
+    } else {
         console_puts("NOT SET\n");
+    }
 
     /* lat / lon / tz */
-    mini_printf("lat  : %L\n", g_cfg.latitude);
-    mini_printf("lon  : %L\n", g_cfg.longitude);
+    mini_printf("lat  : %L\n", g_cfg.latitude_e4);
+    mini_printf("lon  : %L\n", g_cfg.longitude_e4);
     mini_printf("tz   : %d\n",   g_cfg.tz);
 
     mini_printf("dst  : %s\n",
                 g_cfg.honor_dst ? "ON (US rules)" : "OFF");
 
-    console_putc('\n');
-
-    console_puts("door open  : ");
-    when_print(&g_cfg.door.open_when);
-    console_putc('\n');
-
-    console_puts("door close : ");
-    when_print(&g_cfg.door.close_when);
     console_putc('\n');
 }
 
@@ -684,6 +804,234 @@ static void cmd_run(int,char**)
     console_puts("Leaving CONFIG mode\n");
     want_exit = true;
 }
+
+static void cmd_event(int argc, char **argv)
+{
+    ensure_cfg_loaded();
+
+    if (argc < 2) {
+        console_puts("?\n");
+        return;
+    }
+
+    /* --------------------------------------------------------------------
+     * event list
+     * ------------------------------------------------------------------ */
+    if (!strcmp(argv[1], "list") && argc == 2) {
+
+        size_t count = 0;
+        const Event *events = config_events_get(&count);
+
+        if (count == 0) {
+            console_puts("(no events)\n");
+            return;
+        }
+
+        for (size_t i = 0; i < count; i++) {
+            const Event *ev = &events[i];
+
+            const char *dev = "?";
+            if (ev->device_id < device_count) {
+                const Device *d = devices[ev->device_id];
+                if (d && d->name)
+                    dev = d->name;
+            }
+
+            mini_printf("[%u] %s %s ",
+                        (unsigned)i,
+                        dev,
+                        action_name(ev->action));
+
+            when_print(&ev->when);
+            console_putc('\n');
+        }
+        return;
+    }
+
+    /* --------------------------------------------------------------------
+     * event clear
+     * ------------------------------------------------------------------ */
+    if (!strcmp(argv[1], "clear") && argc == 2) {
+        config_events_clear();
+        g_cfg_dirty = true;
+        console_puts("OK (events cleared, not saved)\n");
+        return;
+    }
+
+    /* --------------------------------------------------------------------
+     * event delete <index>
+     * ------------------------------------------------------------------ */
+    if (!strcmp(argv[1], "delete") && argc == 3) {
+
+        char *end = NULL;
+        long idx = strtol(argv[2], &end, 10);
+
+        if (!end || *end != '\0' || idx < 0 || idx >= MAX_EVENTS) {
+            console_puts("ERROR\n");
+            return;
+        }
+
+        if (!config_events_delete((uint8_t)idx)) {
+            console_puts("ERROR\n");
+            return;
+        }
+
+        g_cfg_dirty = true;
+        console_puts("OK (event deleted, not saved)\n");
+        return;
+    }
+
+    /* --------------------------------------------------------------------
+     * event add ...
+     * ------------------------------------------------------------------ */
+    if (!strcmp(argv[1], "add")) {
+
+        Event ev;
+        memset(&ev, 0, sizeof(ev));
+
+        if (argc < 5) {
+            console_puts("ERROR\n");
+            return;
+        }
+
+        /* device */
+        if (!devices_lookup_id(argv[2], &ev.device_id)) {
+            console_puts("ERROR\n");
+            return;
+        }
+
+        /* action */
+        if (!strcmp(argv[3], "on"))
+            ev.action = ACTION_ON;
+        else if (!strcmp(argv[3], "off"))
+            ev.action = ACTION_OFF;
+        else {
+            console_puts("ERROR\n");
+            return;
+        }
+
+        /* ------------------------------------------------------------
+         * implicit midnight: HH:MM
+         * event add door on 07:30
+         * ---------------------------------------------------------- */
+        if (argc == 5) {
+            int hh, mm;
+            if (!parse_time_hm(argv[4], &hh, &mm)) {
+                console_puts("ERROR\n");
+                return;
+            }
+            ev.when.ref = REF_MIDNIGHT;
+            ev.when.offset_minutes = (int16_t)(hh * 60 + mm);
+            goto add_event;
+        }
+
+        /* ------------------------------------------------------------
+         * explicit midnight
+         * event add door on midnight HH:MM
+         * ---------------------------------------------------------- */
+        if (argc == 6 && !strcmp(argv[4], "midnight")) {
+            int hh, mm;
+            if (!parse_time_hm(argv[5], &hh, &mm)) {
+                console_puts("ERROR\n");
+                return;
+            }
+            ev.when.ref = REF_MIDNIGHT;
+            ev.when.offset_minutes = (int16_t)(hh * 60 + mm);
+            goto add_event;
+        }
+
+        /* ------------------------------------------------------------
+         * solar anchors
+         * event add door on solar sunrise +10
+         * event add door off solar sunset -15
+         * ---------------------------------------------------------- */
+        if (argc == 7 && !strcmp(argv[4], "solar")) {
+
+            if (!strcmp(argv[5], "sunrise"))
+                ev.when.ref = REF_SOLAR_STD_RISE;
+            else if (!strcmp(argv[5], "sunset"))
+                ev.when.ref = REF_SOLAR_STD_SET;
+            else {
+                console_puts("ERROR\n");
+                return;
+            }
+
+            int off;
+            if (!parse_signed_int(argv[6], &off)) {
+                console_puts("ERROR\n");
+                return;
+            }
+
+            ev.when.offset_minutes = (int16_t)off;
+            goto add_event;
+        }
+
+        /* ------------------------------------------------------------
+         * civil anchors
+         * event add door on civil dawn +0
+         * event add door off civil dusk +5
+         * ---------------------------------------------------------- */
+        if (argc == 7 && !strcmp(argv[4], "civil")) {
+
+            if (!strcmp(argv[5], "dawn"))
+                ev.when.ref = REF_SOLAR_CIV_RISE;
+            else if (!strcmp(argv[5], "dusk"))
+                ev.when.ref = REF_SOLAR_CIV_SET;
+            else {
+                console_puts("ERROR\n");
+                return;
+            }
+
+            int off;
+            if (!parse_signed_int(argv[6], &off)) {
+                console_puts("ERROR\n");
+                return;
+            }
+
+            ev.when.offset_minutes = (int16_t)off;
+            goto add_event;
+        }
+
+        console_puts("ERROR\n");
+        return;
+
+add_event:
+        ev.refnum = 0;
+
+        if (!config_events_add(&ev)) {
+            console_puts("ERROR\n");
+            return;
+        }
+
+        g_cfg_dirty = true;
+        console_puts("OK (event added, not saved)\n");
+        return;
+    }
+
+    /* ------------------------------------------------------------------ */
+
+    console_puts("?\n");
+}
+
+
+
+static void cmd_next(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    console_puts("next: not yet implemented\n");
+}
+
+#ifdef HOST_BUILD
+
+static void cmd_sleep(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    console_puts("sleep: not yet implemented\n");
+}
+
+#endif
 
 
 typedef void (*cmd_fn_t)(int argc, char **argv);
@@ -698,95 +1046,160 @@ typedef struct {
 } cmd_entry_t;
 
 
-static const cmd_entry_t cmd_table[] = {
 
-    { "help", 0, 1, console_help,
-      "Show help",
-      "help\n"
-      "help <command>\n"
-      "  Show top-level command list or detailed help for a command\n"
-    },
+/// -------------------------
 
-    { "version", 0, 0, cmd_version,
-      "Show firmware version",
-      "version\n"
-      "  Show firmware version and build date\n"
-    },
+/*
+  * Canonical command list
+  * name, min, max, handler, short_help, long_help
+  */
+ #define CMD_LIST(X) \
+     X(help, 0, 1, console_help, \
+       "Show help", \
+       "help\n" \
+       "help <command>\n" \
+       "  Show top-level command list or detailed help for a command\n" \
+     ) \
+     \
+     X(version, 0, 0, cmd_version, \
+       "Show firmware version", \
+       "version\n" \
+       "  Show firmware version and build date\n" \
+     ) \
+     \
+     X(time, 0, 0, cmd_time, \
+       "Show current date/time", \
+       "time\n" \
+       "  Show RTC date and time\n" \
+       "  Format: YYYY-MM-DD HH:MM:SS AM|PM\n" \
+     ) \
+     \
+     X(schedule, 0, 0, cmd_schedule, \
+       "Show schedule", \
+       "schedule\n" \
+       "  Show system schedule and next resolved events\n" \
+     ) \
+     \
+     X(solar, 0, 0, cmd_solar, \
+       "Show sunrise/sunset times", \
+       "solar\n" \
+       "  Show stored location and today's solar times\n" \
+     ) \
+     \
+     X(set, 2, 6, cmd_set, \
+       "Configure settings", \
+       "set date YYYY-MM-DD\n" \
+       "set time HH:MM:SS\n" \
+       "set lat  +/-DD.DDDD\n" \
+       "set lon  +/-DDD.DDDD\n" \
+       "set tz   +/-HH\n" \
+       "\n" \
+       "set door open solar  +/-MIN\n" \
+       "set door close solar +/-MIN\n" \
+       "set door open civil  +/-MIN\n" \
+       "set door close civil +/-MIN\n" \
+     ) \
+     \
+     X(config, 0, 0, cmd_config, \
+       "Show configuration", \
+       "config\n" \
+       "  Show current configuration values\n" \
+       "  Note: changes are not committed until save\n" \
+     ) \
+     \
+     X(save, 0, 0, cmd_save, \
+       "Commit settings", \
+       "save\n" \
+       "  Commit configuration to EEPROM and program RTC\n" \
+     ) \
+     \
+     X(timeout, 1, 1, cmd_timeout, \
+       "Control CONFIG timeout", \
+       "timeout on\n" \
+       "timeout off\n" \
+       "  Enable or disable CONFIG inactivity timeout\n" \
+     ) \
+     \
+     X(door, 1, 2, cmd_door, \
+       "Manually control door", \
+       "door open\n" \
+       "door close\n" \
+       "  Manually actuate the coop door\n" \
+     ) \
+     \
+     X(lock, 1, 2, cmd_lock, \
+       "Manually control lock", \
+       "lock engage\n" \
+       "lock release\n" \
+       "  Manually engage or release the door lock\n" \
+     ) \
+     \
+     X(exit, 0, 0, cmd_run, \
+       "Leave config mode", \
+       "exit\n" \
+       "  Leave CONFIG mode\n" \
+     ) \
+     X(next, 0, 0, cmd_next, \
+       "Show next scheduled event", \
+       "next\n" \
+       "  Display the next resolved scheduler event (if any)\n" \
+     ) \
+     X(event, 1, 7, cmd_event, \
+        "Event commands", \
+        "event list\n" \
+        "event add <device> <on|off> HH:MM\n" \
+        "event add <device> <on|off> midnight HH:MM\n" \
+        "event add <device> <on|off> solar sunrise +/-MIN\n" \
+        "event add <device> <on|off> solar sunset  +/-MIN\n" \
+        "event add <device> <on|off> civil dawn    +/-MIN\n" \
+        "event add <device> <on|off> civil dusk    +/-MIN\n" \
+      )
 
-    { "time", 0, 0, cmd_time,
-      "Show current date/time",
-      "time\n"
-      "  Show RTC date and time\n"
-      "  Format: YYYY-MM-DD HH:MM:SS AM|PM\n"
-    },
+ /* Commands that only exist when their handlers exist */
+ #ifdef HOST_BUILD
+ #define CMD_SLEEP_HOST(X) \
+     X(sleep, 0, 0, cmd_sleep, \
+       "Sleep til next scheduled event", \
+       "sleep\n" \
+       "  sleep till the next resolved scheduler event (if any)\n" \
+     )
+ #else
+ #define CMD_SLEEP_HOST(X)
+ #endif
 
-    { "schedule", 0, 0, cmd_schedule,
-      "Show schedule",
-      "schedule\n"
-      "  Show system schedule and next resolved events\n"
-    },
+ #ifdef __AVR__
+ #include <avr/pgmspace.h>
+ #define DECLARE_CMD_STRINGS(name, min, max, fn, short_h, long_h) \
+     static const char cmd_##name##_name[] PROGMEM = #name; \
+     static const char cmd_##name##_short[] PROGMEM = short_h; \
+     static const char cmd_##name##_long[] PROGMEM = long_h;
+ #else
+ #define DECLARE_CMD_STRINGS(name, min, max, fn, short_h, long_h) \
+     static const char *cmd_##name##_name = #name; \
+     static const char *cmd_##name##_short = short_h; \
+     static const char *cmd_##name##_long = long_h;
+ #endif
 
-    { "solar", 0, 0, cmd_solar,
-      "Show sunrise/sunset times",
-      "solar\n"
-      "  Show stored location and today's solar times\n"
-    },
+ CMD_LIST(DECLARE_CMD_STRINGS)
+ CMD_SLEEP_HOST(DECLARE_CMD_STRINGS)
 
-    { "set", 2, 6, cmd_set,
-      "Configure settings",
-      "set date YYYY-MM-DD\n"
-      "set time HH:MM:SS\n"
-      "set lat  +/-DD.DDDD\n"
-      "set lon  +/-DDD.DDDD\n"
-      "set tz   +/-HH\n"
-      "\n"
-      "set door open solar  +/-MIN\n"
-      "set door close solar +/-MIN\n"
-      "set door open civil  +/-MIN\n"
-      "set door close civil +/-MIN\n"
-    },
-    { "config", 0, 0, cmd_config,
-      "Show configuration",
-      "config\n"
-      "  Show current configuration values\n"
-      "  Note: changes are not committed until save\n"
-    },
+ #ifdef __AVR__
+ #define CMD_PROGMEM PROGMEM
+ #else
+ #define CMD_PROGMEM
+ #endif
 
-    { "save", 0, 0, cmd_save,
-      "Commit settings",
-      "save\n"
-      "  Commit configuration to EEPROM and program RTC\n"
-    },
+ static const cmd_entry_t cmd_table[] CMD_PROGMEM = {
+ #define MAKE_CMD_ENTRY(name, min, max, fn, short_h, long_h) \
+     { cmd_##name##_name, min, max, fn, cmd_##name##_short, cmd_##name##_long },
+     CMD_LIST(MAKE_CMD_ENTRY) \
+     CMD_SLEEP_HOST(MAKE_CMD_ENTRY)
+ #undef MAKE_CMD_ENTRY
+ };
 
-    { "timeout", 1, 1, cmd_timeout,
-      "Control CONFIG timeout",
-      "timeout on\n"
-      "timeout off\n"
-      "  Enable or disable CONFIG inactivity timeout\n"
-    },
+ #define CMD_TABLE_LEN (sizeof(cmd_table) / sizeof(cmd_table[0]))
 
-    { "door", 1, 2, cmd_door,
-      "Manually control door",
-      "door open\n"
-      "door close\n"
-      "  Manually actuate the coop door\n"
-    },
-
-    { "lock", 1, 2, cmd_lock,
-      "Manually control lock",
-      "lock engage\n"
-      "lock release\n"
-      "  Manually engage or release the door lock\n"
-    },
-
-    { "exit", 0, 0, cmd_run,
-      "Leave config mode",
-      "exit\n"
-      "  Leave CONFIG mode\n"
-    },
-};
-
-#define CMD_TABLE_LEN (sizeof(cmd_table) / sizeof(cmd_table[0]))
+ /// -------------------------
 
 void console_help(int argc, char **argv)
 {

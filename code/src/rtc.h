@@ -4,6 +4,12 @@
  * Project: Chicken Coop Controller
  * Purpose: RTC abstraction (host + firmware)
  *
+ * Responsibilities:
+ *  - Maintain wall-clock date/time
+ *  - Provide deterministic access to current time
+ *  - Support alarm scheduling for low-power operation
+ *  - Expose minute-level time for scheduler reducer
+ *
  * Notes:
  *  - Offline system
  *  - Deterministic behavior
@@ -22,11 +28,19 @@
  *   day   = 1..31
  */
 
-void rtc_get_time(int*,int*,int*,int*,int*,int*);
-void rtc_set_time(int y,int mo,int d,int h,int m,int s);
+void rtc_get_time(int *y, int *mo, int *d,
+                  int *h, int *m, int *s);
+void rtc_set_time(int y, int mo, int d,
+                  int h, int m, int s);
 bool rtc_time_is_set(void);
 
 /* Alarm interface (minute resolution is sufficient) */
 bool rtc_alarm_set_hm(uint8_t hour, uint8_t minute);
 void rtc_alarm_disable(void);
 void rtc_alarm_clear_flag(void);
+
+/*
+ * Scheduler support
+ * Returns minutes since midnight [0..1439]
+ */
+uint16_t rtc_minutes_since_midnight(void);

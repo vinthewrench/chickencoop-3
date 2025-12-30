@@ -64,6 +64,20 @@ void console_init(void)
     console_puts("> ");
 }
 
+static void strip_comment(char *line)
+{
+    if (!line)
+        return;
+
+    for (; *line; line++) {
+        if (*line == '#') {
+            *line = '\0';
+            return;
+        }
+    }
+}
+
+
 void console_poll(void)
 {
     if (want_exit)
@@ -83,8 +97,10 @@ void console_poll(void)
     last_activity_sec = uptime_seconds();
 
     if (c == '\n' || c == '\r') {
-        console_putc('\n');
         buf[idx] = 0;
+
+        /* strip comments before tokenizing */
+        strip_comment(buf);
 
         char *argv[8];
         int argc = 0;
@@ -111,6 +127,8 @@ void console_poll(void)
 
     if (idx < MAX_LINE - 1) {
         buf[idx++] = (char)c;
+#ifndef HOST_BUILD
         console_putc((char)c);
+#endif
     }
 }

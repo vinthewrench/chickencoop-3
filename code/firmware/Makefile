@@ -59,6 +59,12 @@ SRCS := \
 	../src/solar.cpp \
 	../src/config_common.cpp \
 	../src/time_dst.cpp \
+	../src/scheduler.cpp \
+	../src/config_events.cpp \
+	../src/rtc_common.cpp \
+	../src/devices/devices.cpp \
+	../src/devices/door_device.cpp \
+	../src/devices/foo_device.cpp \
 	../src/resolve_when.cpp \
 	../src/console/console.cpp \
 	../src/console/console_cmds.cpp \
