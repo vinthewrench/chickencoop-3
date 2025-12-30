@@ -34,7 +34,7 @@ SRCS := \
 	solar.cpp \
 	config_common.cpp \
 	time_dst.cpp \
-	door_time.cpp \
+	resolve_when.cpp \
 	console.cpp \
 	console_cmds.cpp \
 	console_time.cpp \

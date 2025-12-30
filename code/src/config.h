@@ -2,27 +2,35 @@
  * config.h
  *
  * Project: Chicken Coop Controller
- * Purpose: Source file
+ * Purpose: Persistent configuration storage
  *
  * Notes:
  *  - Offline system
  *  - Deterministic behavior
- *  - No network dependencies
+ *  - No device-specific logic
+ *  - Stores declarative scheduling intent only
  *
  * Updated: 2025-12-29
  */
 
 #pragma once
-#include "door.h"
+#include <stdbool.h>
+#include "events.h"
 
+/* Door scheduling configuration */
+struct door_config {
+    struct When open_when;
+    struct When close_when;
+};
 
+/* Global configuration */
 struct config {
     double latitude;
     double longitude;
-    int    tz;          // standard time offset
-    bool   honor_dst;   // NEW: apply US DST rules
-   struct door_rule open_rule;
-    struct door_rule close_rule;
+    int    tz;          /* standard time offset */
+    bool   honor_dst;   /* apply US DST rules */
+
+    struct door_config door;
 };
 
 void config_load(struct config *cfg);

@@ -7,11 +7,12 @@
 #include "time_dst.h"
 #include "console_time.h"
 
+#include "events.h"
 #include "solar.h"
 #include "rtc.h"
 #include "config.h"
-#include "door.h"
 #include "lock.h"
+#include "door.h"
 #include "uptime.h"
 
 #include <string.h>
@@ -167,6 +168,30 @@ static bool parse_time_hms(const char *s,int *h,int *m,int *sec)
 }
 
 
+static void when_print(const struct When *w)
+{
+    if (w->ref == REF_NONE) {
+        console_puts("DISABLED");
+        return;
+    }
+
+    if (w->ref == REF_MIDNIGHT) {
+        int h = w->offset_minutes / 60;
+        int m = abs(w->offset_minutes % 60);
+        mini_printf("%02d:%02d", h, m);
+        return;
+    }
+
+    const char *name =
+        (w->ref == REF_SOLAR_STD) ? "SOLAR" :
+        (w->ref == REF_SOLAR_CIV) ? "CIVIL" :
+        "?";
+
+    mini_printf("%s %c%d",
+        name,
+        (w->offset_minutes < 0) ? '-' : '+',
+        abs(w->offset_minutes));
+}
 
 
 // -----------------------------------------------------------------------------
@@ -326,15 +351,12 @@ static void cmd_schedule(int argc, char **argv)
         return;
     }
 
-    uint16_t o = resolve_door_time(&g_cfg.open_rule,  &sol, true);
-    uint16_t c = resolve_door_time(&g_cfg.close_rule, &sol, false);
-
     console_puts("OPEN : ");
-    print_hhmm(o);
+    when_print(&g_cfg.door.open_when);
     console_putc('\n');
 
     console_puts("CLOSE: ");
-    print_hhmm(c);
+    when_print(&g_cfg.door.close_when);
     console_putc('\n');
 }
 
@@ -431,21 +453,19 @@ static void cmd_set(int argc, char **argv)
             console_puts("OK\n");
             return;
         }
-
         if (!strcmp(argv[2], "off")) {
             g_cfg.honor_dst = false;
             g_cfg_dirty = true;
             console_puts("OK\n");
             return;
         }
-
         console_puts("ERROR\n");
         return;
     }
 
     // set door open|close HH:MM
     if (!strcmp(argv[1], "door") && argc == 4) {
-        bool is_open  = !strcmp(argv[2], "open");
+        bool is_open = !strcmp(argv[2], "open");
         bool is_close = !strcmp(argv[2], "close");
 
         if (!is_open && !is_close) {
@@ -459,9 +479,12 @@ static void cmd_set(int argc, char **argv)
             return;
         }
 
-        struct door_rule *r = is_open ? &g_cfg.open_rule : &g_cfg.close_rule;
-        r->ref = REF_MIDNIGHT;
-        r->offset_minutes = (int16_t)(hh * 60 + mm);
+        struct When *w = is_open
+            ? &g_cfg.door.open_when
+            : &g_cfg.door.close_when;
+
+        w->ref = REF_MIDNIGHT;
+        w->offset_minutes = (int16_t)(hh * 60 + mm);
 
         g_cfg_dirty = true;
         console_puts("OK\n");
@@ -470,7 +493,7 @@ static void cmd_set(int argc, char **argv)
 
     // set door open|close solar|civil +/-MIN
     if (!strcmp(argv[1], "door") && argc == 5) {
-        bool is_open  = !strcmp(argv[2], "open");
+        bool is_open = !strcmp(argv[2], "open");
         bool is_close = !strcmp(argv[2], "close");
 
         if (!is_open && !is_close) {
@@ -478,16 +501,19 @@ static void cmd_set(int argc, char **argv)
             return;
         }
 
-        struct door_rule *r = is_open ? &g_cfg.open_rule : &g_cfg.close_rule;
+        struct When *w = is_open
+            ? &g_cfg.door.open_when
+            : &g_cfg.door.close_when;
+
         int offset = atoi(argv[4]);
 
         if (!strcmp(argv[3], "solar")) {
-            r->ref = REF_SOLAR_STD;
-            r->offset_minutes = (int16_t)offset;
+            w->ref = REF_SOLAR_STD;
+            w->offset_minutes = (int16_t)offset;
         }
         else if (!strcmp(argv[3], "civil")) {
-            r->ref = REF_SOLAR_CIV;
-            r->offset_minutes = (int16_t)offset;
+            w->ref = REF_SOLAR_CIV;
+            w->offset_minutes = (int16_t)offset;
         }
         else {
             console_puts("?\n");
@@ -501,6 +527,7 @@ static void cmd_set(int argc, char **argv)
 
     console_puts("?\n");
 }
+
 
 static void cmd_save(int argc,char **argv)
 {
@@ -606,37 +633,6 @@ static void cmd_lock(int argc, char **argv)
 }
 
 
-static void door_rule_print(const struct door_rule *r)
-{
-    if (r->ref == REF_NONE) {
-        console_puts("NONE");
-        return;
-    }
-
-    if (r->ref == REF_MIDNIGHT) {
-        int h = r->offset_minutes / 60;
-        int m = r->offset_minutes % 60;
-        mini_printf("%02d:%02d", h, m);
-        return;
-    }
-
-    if (r->ref == REF_SOLAR_STD) {
-        mini_printf("SOLAR %c%d",
-            (r->offset_minutes < 0) ? '-' : '+',
-            abs(r->offset_minutes));
-        return;
-    }
-
-    if (r->ref == REF_SOLAR_CIV) {
-        mini_printf("CIVIL %c%d",
-            (r->offset_minutes < 0) ? '-' : '+',
-            abs(r->offset_minutes));
-        return;
-    }
-
-    console_puts("?");
-}
-
 static void cmd_config(int, char **)
 {
     ensure_cfg_loaded();
@@ -671,11 +667,11 @@ static void cmd_config(int, char **)
     console_putc('\n');
 
     console_puts("door open  : ");
-    door_rule_print(&g_cfg.open_rule);
+    when_print(&g_cfg.door.open_when);
     console_putc('\n');
 
     console_puts("door close : ");
-    door_rule_print(&g_cfg.close_rule);
+    when_print(&g_cfg.door.close_when);
     console_putc('\n');
 }
 

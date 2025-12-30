@@ -2,12 +2,12 @@
  * door.h
  *
  * Project: Chicken Coop Controller
- * Purpose: Source file
+ * Purpose: Door device interface
  *
  * Notes:
- *  - Offline system
- *  - Deterministic behavior
- *  - No network dependencies
+ *  - Door scheduling rules are declarative
+ *  - Scheduler computes expected state; door reconciles hardware
+ *  - Lock/unlock sequencing remains internal to door logic
  *
  * Updated: 2025-12-29
  */
@@ -15,24 +15,21 @@
 #pragma once
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include "events.h"
 
-enum door_time_ref {
-    REF_NONE = 0,
-    REF_MIDNIGHT,
-    REF_SOLAR_STD,
-    REF_SOLAR_CIV
-};
-struct door_rule {
-    enum door_time_ref ref;
-    int16_t offset_minutes;
-};
+#define DEVICE_DOOR  1
 
+/* Low-level door controls */
 void door_open(void);
 void door_close(void);
 bool door_is_open(void);
 
-struct solar_times;
-uint16_t resolve_door_time(
-    const struct door_rule *rule,
-    const struct solar_times *sol,
-    bool is_open);
+/* Emit today's declarative events derived from door rules */
+size_t door_get_events(struct Event* out, size_t max);
+
+/* Disable a scheduling rule by refnum */
+void door_disable_rule(refnum_t refnum);
+
+/* Reconcile door hardware to expected state */
+void door_reconcile(enum Action expected);

@@ -1,22 +1,18 @@
 /*
- * rtc.cpp
+ * rtc.cpp (firmware stub)
  *
  * Project: Chicken Coop Controller
- * Purpose: Source file
+ * Purpose: RTC stub implementation with alarm hooks
  *
  * Notes:
- *  - Offline system
- *  - Deterministic behavior
- *  - No network dependencies
+ *  - Temporary stub until PCF8523 hardware is wired
+ *  - Provides linkable symbols for scheduler integration
+ *  - No actual interrupts or alarms generated
  *
  * Updated: 2025-12-29
  */
 
 #include "rtc.h"
-
-// TEMPORARY RTC SHELL
-// Replace internals with real RTC reads/writes when the hardware is wired.
-// For now we keep a software-backed clock that is set on SAVE.
 
 static bool g_rtc_valid = false;
 
@@ -51,4 +47,21 @@ void rtc_set_time(int y,int mo,int d,int h,int m,int s)
 bool rtc_time_is_set(void)
 {
     return g_rtc_valid;
+}
+
+/* ---- Alarm stubs ---- */
+
+bool rtc_alarm_set_hm(uint8_t hour, uint8_t minute)
+{
+    (void)hour;
+    (void)minute;
+    return true;
+}
+
+void rtc_alarm_disable(void)
+{
+}
+
+void rtc_alarm_clear_flag(void)
+{
 }

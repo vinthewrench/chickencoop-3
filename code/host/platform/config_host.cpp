@@ -23,8 +23,11 @@ void config_load(struct config *cfg)
     config_defaults(cfg);
 
  /* fake for testing */
-    cfg->open_rule  = { REF_SOLAR_STD, 0 };
-    cfg->close_rule = { REF_SOLAR_CIV, 0 };
+ cfg->door.open_when.ref = REF_SOLAR_STD;
+ cfg->door.open_when.offset_minutes = 0;
+
+ cfg->door.close_when.ref = REF_SOLAR_CIV;
+ cfg->door.close_when.offset_minutes = 0;
 }
 
 /* Host does not persist configuration */

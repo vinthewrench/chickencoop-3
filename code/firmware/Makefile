@@ -59,7 +59,7 @@ SRCS := \
 	../src/solar.cpp \
 	../src/config_common.cpp \
 	../src/time_dst.cpp \
-	../src/door_time.cpp \
+	../src/resolve_when.cpp \
 	../src/console/console.cpp \
 	../src/console/console_cmds.cpp \
 	../src/console/console_time.cpp \
