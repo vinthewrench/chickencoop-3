@@ -67,3 +67,5 @@ firmware/build/
 *.tar
 *.tar.gz
 *.tgz
+
+coop.cfg
