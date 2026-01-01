@@ -2,7 +2,7 @@
  * next_event.cpp
  *
  * Project: Chicken Coop Controller
- * Purpose: Determine the next scheduled event for today
+ * Purpose: Determine the next scheduled event for today or tomorrow
  *
  * Notes:
  *  - Pure scheduling logic
@@ -32,7 +32,9 @@ bool next_event_today(const Event *events,
     uint16_t best_minute = 0;
     size_t best_index = 0;
 
-    /* First pass: today, minute > now */
+    /* ------------------------------------------------------------
+     * First pass: today (strictly after now)
+     * ------------------------------------------------------------ */
     for (size_t i = 0; i < count; i++) {
         uint16_t minute;
         if (!resolve_when(&events[i].when, sol, &minute))
@@ -55,7 +57,13 @@ bool next_event_today(const Event *events,
         return true;
     }
 
-    /* Second pass: tomorrow (wrap) */
+    /* ------------------------------------------------------------
+     * Second pass: tomorrow (wrap)
+     * ------------------------------------------------------------ */
+    found = false;
+    best_minute = 0;
+    best_index = 0;
+
     for (size_t i = 0; i < count; i++) {
         uint16_t minute;
         if (!resolve_when(&events[i].when, sol, &minute))

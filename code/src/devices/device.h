@@ -2,24 +2,31 @@
  * device.h
  *
  * Project: Chicken Coop Controller
- * Purpose: Device event interface for scheduler
+ * Purpose: Generic device interface
  *
- * Rules:
- *  - Devices emit declarative events only
- *  - No execution, no timing logic
- *  - Stable refnums per rule
+ * Notes:
+ *  - Devices are dumb
+ *  - No scheduling or event knowledge
+ *  - Scheduler decides WHAT, devices decide HOW
  *
- * Updated: 2025-12-30
+ * Updated: 2026-01-01
  */
 
 #pragma once
 #include <stddef.h>
-#include "events.h"
 
+/* Device-visible state */
+typedef enum {
+    DEV_STATE_UNKNOWN = 0,
+    DEV_STATE_OFF,
+    DEV_STATE_ON
+} dev_state_t;
+
+/* Generic device vtable */
 typedef struct {
     const char *name;
 
-     /* Reconcile expected state (not used yet) */
-    void (*reconcile)(Action expected);
-
+    dev_state_t (*get_state)(void);
+    void        (*set_state)(dev_state_t state);
+    const char *(*state_string)(dev_state_t state);
 } Device;

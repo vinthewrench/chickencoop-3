@@ -42,6 +42,7 @@ SRCS := \
 	config_events.cpp \
 	next_event.cpp \
 	scheduler.cpp \
+	scheduler_reconcile.cpp \
 	mini_printf.cpp \
 	devices.cpp \
 	door_device.cpp \

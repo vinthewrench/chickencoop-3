@@ -60,6 +60,7 @@ SRCS := \
 	../src/config_common.cpp \
 	../src/time_dst.cpp \
 	../src/scheduler.cpp \
+	../src/scheduler_reconcile.cpp \
 	../src/next_event.cpp \
 	../src/config_events.cpp \
 	../src/rtc_common.cpp \

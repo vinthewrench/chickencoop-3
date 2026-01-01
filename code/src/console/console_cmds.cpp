@@ -332,6 +332,7 @@ static const char *action_name(enum Action a)
     }
 }
 
+
 // -----------------------------------------------------------------------------
 // Commands
 // -----------------------------------------------------------------------------
@@ -563,19 +564,28 @@ static void cmd_set(int argc, char **argv)
         return;
     }
 
-    // set time HH:MM:SS
+    // set time HH:MM[:SS]
     if (!strcmp(argv[1], "time") && argc == 3) {
-        int hh, mi, ss;
-        if (!parse_time_hms(argv[2], &hh, &mi, &ss)) {
+        int hh = 0, mi = 0, ss = 0;
+
+        if (parse_time_hms(argv[2], &hh, &mi, &ss)) {
+            /* HH:MM:SS */
+        } else if (parse_time_hm(argv[2], &hh, &mi)) {
+            /* HH:MM — default seconds */
+            ss = 0;
+        } else {
             console_puts("ERROR\n");
             return;
         }
+
         g_time_h = hh;
         g_time_m = mi;
         g_time_s = ss;
+
         g_have_time = true;
         g_time_set_uptime_s = uptime_seconds();
         g_cfg_dirty = true;
+
         console_puts("OK\n");
         return;
     }
@@ -639,6 +649,109 @@ static void cmd_set(int argc, char **argv)
 
     console_puts("?\n");
 }
+
+/*
+ * Parse a device state from user input.
+ *
+ * Rules:
+ *  - Prefer device-defined state_string()
+ *  - Case-insensitive match
+ *  - Fallback to "on"/"off"
+ *  - No scheduler or device knowledge here
+ */
+
+ static bool parse_device_state(const Device *d,
+                                const char *arg,
+                                dev_state_t *out)
+ {
+     if (!d || !arg || !out)
+         return false;
+
+     /* Device-specific names first */
+     if (d->state_string) {
+         for (dev_state_t s = DEV_STATE_UNKNOWN;
+              s <= DEV_STATE_ON;
+              s = (dev_state_t)(s + 1)) {
+
+             const char *name = d->state_string(s);
+             if (!name)
+                 continue;
+
+             if (!strcasecmp(arg, name)) {
+                 *out = s;
+                 return true;
+             }
+         }
+     }
+
+     /* Fallback */
+     if (!strcasecmp(arg, "on")) {
+         *out = DEV_STATE_ON;
+         return true;
+     }
+
+     if (!strcasecmp(arg, "off")) {
+         *out = DEV_STATE_OFF;
+         return true;
+     }
+
+     return false;
+ }
+
+ static void cmd_device(int argc, char **argv)
+ {
+     /* device */
+     if (argc == 1) {
+         for (size_t i = 0; i < device_count; i++) {
+             const Device *d = devices[i];
+             if (!d)
+                 continue;
+
+             dev_state_t st = DEV_STATE_UNKNOWN;
+             if (d->get_state)
+                 st = d->get_state();
+
+             const char *s = "?";
+             if (d->state_string)
+                 s = d->state_string(st);
+
+             console_puts(d->name);
+             console_puts(": ");
+             console_puts(s);
+             console_putc('\n');
+         }
+         return;
+     }
+
+     /* device <name> <state> */
+     if (argc == 3) {
+         uint8_t id;
+
+         /* NOTE: 0 == success */
+         if (device_lookup_id(argv[1], &id) == 0) {
+             console_puts("ERROR\n");
+             return;
+         }
+
+         const Device *d = devices[id];
+         if (!d || !d->set_state) {
+             console_puts("ERROR\n");
+             return;
+         }
+
+         dev_state_t want;
+         if (!parse_device_state(d, argv[2], &want)) {
+             console_puts("ERROR\n");
+             return;
+         }
+
+         d->set_state(want);
+         console_puts("OK\n");
+         return;
+     }
+
+     console_puts("?\n");
+ }
 
 
 static void cmd_save(int argc,char **argv)
@@ -972,7 +1085,7 @@ static void cmd_event(int argc, char **argv)
             return;
         }
 
-        if (!devices_lookup_id(argv[2], &ev.device_id)) {
+        if (!device_lookup_id(argv[2], &ev.device_id)) {
             console_puts("ERROR\n");
             return;
         }
@@ -1228,12 +1341,7 @@ typedef struct {
        "set lat  +/-DD.DDDD\n" \
        "set lon  +/-DDD.DDDD\n" \
        "set tz   +/-HH\n" \
-       "\n" \
-       "set door open solar  +/-MIN\n" \
-       "set door close solar +/-MIN\n" \
-       "set door open civil  +/-MIN\n" \
-       "set door close civil +/-MIN\n" \
-     ) \
+        ) \
      \
      X(config, 0, 0, cmd_config, \
        "Show configuration", \
@@ -1255,6 +1363,13 @@ typedef struct {
        "  Enable or disable CONFIG inactivity timeout\n" \
      ) \
      \
+     X(device, 0, 3, cmd_device, \
+        "Show or set device state", \
+        "device\n" \
+        "device <name>\n" \
+        "device <name> on|off\n" \
+        "  Show all device states, show one device, or set device state\n" \
+      ) \
      X(door, 1, 2, cmd_door, \
        "Manually control door", \
        "door open\n" \

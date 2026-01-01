@@ -2,43 +2,46 @@
  * door_device.cpp
  *
  * Project: Chicken Coop Controller
- * Purpose: Door device declarative events
+ * Purpose: Door device abstraction
  *
- * Updated: 2025-12-30
+ * Updated: 2026-01-01
  */
 
-#include "door_device.h"
-#include "devices/door_device.h"
-#include "rtc.h"
-#include "console/mini_printf.h"   // for mini_printf / console_puts
+#include "device.h"
+#include "door.h"
 
+static dev_state_t door_state = DEV_STATE_UNKNOWN;
 
-
-static const char *action_name(Action a)
+static dev_state_t door_get_state(void)
 {
-    switch (a) {
-    case ACTION_ON:  return "OPEN";
-    case ACTION_OFF: return "CLOSE";
-    default:         return "UNKNOWN";
+    return door_state;
+}
+
+static void door_set_state(dev_state_t state)
+{
+    if (state == door_state)
+        return;
+
+    door_state = state;
+
+    if (state == DEV_STATE_ON)
+        door_open();
+    else if (state == DEV_STATE_OFF)
+        door_close();
+}
+
+static const char *door_state_string(dev_state_t state)
+{
+    switch (state) {
+    case DEV_STATE_ON:  return "OPEN";
+    case DEV_STATE_OFF: return "CLOSED";
+    default:            return "UNKNOWN";
     }
 }
 
-static void door_reconcile(Action expected)
-{
-    uint16_t now = rtc_minutes_since_midnight();
-
-    mini_printf(
-        "[door] reconcile %s @ %02u:%02u\n",
-        action_name(expected),
-        now / 60,
-        now % 60
-    );
-
-    /* no execution yet */
-}
-
-
-const Device door_device = {
-    .name       = "door",
-    .reconcile  = door_reconcile
+Device door_device = {
+    .name = "door",
+    .get_state = door_get_state,
+    .set_state = door_set_state,
+    .state_string = door_state_string
 };

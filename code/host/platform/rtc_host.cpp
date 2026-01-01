@@ -6,10 +6,12 @@
  * Host RTC stub
  * - Always valid
  * - Initialized from host system time
- * - Timezone handled by OS
+ * - Can be overridden via rtc_set_time()
+ * - After override, behaves like a real RTC (no resync)
  */
 
-static bool g_rtc_valid = true;
+static bool g_rtc_valid  = true;
+static bool g_rtc_manual = false;
 
 static int g_year;
 static int g_month;
@@ -41,7 +43,8 @@ static void rtc_sync_from_host(void)
 void rtc_get_time(int *year,int *month,int *day,
                   int *hour,int *minute,int *second)
 {
-    rtc_sync_from_host();
+    if (!g_rtc_manual)
+        rtc_sync_from_host();
 
     *year   = g_year;
     *month  = g_month;
@@ -53,19 +56,21 @@ void rtc_get_time(int *year,int *month,int *day,
 
 void rtc_set_time(int y,int mo,int d,int h,int m,int s)
 {
-    /* Allow tests to override time */
+    /* Override RTC time (locks host sync) */
     g_year   = y;
     g_month  = mo;
     g_day    = d;
     g_hour   = h;
     g_minute = m;
     g_second = s;
-    g_rtc_valid = true;
+
+    g_rtc_manual = true;
+    g_rtc_valid  = true;
 }
 
 bool rtc_time_is_set(void)
 {
-    return true;
+    return g_rtc_valid;
 }
 
 bool rtc_alarm_set_hm(uint8_t hour, uint8_t minute)

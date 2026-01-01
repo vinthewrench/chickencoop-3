@@ -2,23 +2,46 @@
  * foo_device.cpp
  *
  * Project: Chicken Coop Controller
- * Purpose: Placeholder device implementation
+ * Purpose: Simple ON/OFF relay device
  *
- * Notes:
- *  - Emits no events
- *  - Used to validate device registry scaling
- *
- * Updated: 2025-12-30
+ * Updated: 2026-01-01
  */
 
-#include "foo_device.h"
+#include "device.h"
+#include "console/mini_printf.h"
 
-static void foo_reconcile(Action expected)
+static dev_state_t foo_state = DEV_STATE_UNKNOWN;
+
+static dev_state_t foo_get_state(void)
 {
-    (void)expected;
+    return foo_state;
 }
 
-const Device foo_device = {
-    .name       = "foo",
-     .reconcile  = foo_reconcile
+static void foo_set_state(dev_state_t state)
+{
+    if (state == foo_state)
+        return;
+
+    foo_state = state;
+
+    if (state == DEV_STATE_ON)
+        mini_printf("[FOO] ON\n");
+    else if (state == DEV_STATE_OFF)
+        mini_printf("[FOO] OFF\n");
+}
+
+static const char *foo_state_string(dev_state_t state)
+{
+    switch (state) {
+    case DEV_STATE_ON:  return "ON";
+    case DEV_STATE_OFF: return "OFF";
+    default:            return "UNKNOWN";
+    }
+}
+
+Device foo_device = {
+    .name = "foo",
+    .get_state = foo_get_state,
+    .set_state = foo_set_state,
+    .state_string = foo_state_string
 };

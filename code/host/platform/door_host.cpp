@@ -2,35 +2,29 @@
  * door_host.cpp
  *
  * Project: Chicken Coop Controller
- * Purpose: Source file
+ * Purpose: Host door platform stub
  *
- * Notes:
- *  - Offline system
- *  - Deterministic behavior
- *  - No network dependencies
- *
- * Updated: 2025-12-29
+ * Updated: 2026-01-01
  */
 
-// host/platform/door_host.cpp
 #include "door.h"
 #include "console/mini_printf.h"
 
-static bool door_open_state = false;
+static bool hw_open = false;
 
 void door_open(void)
 {
     mini_printf("[HOST] door_open()\n");
-    door_open_state = true;
+    hw_open = true;
 }
 
 void door_close(void)
 {
     mini_printf("[HOST] door_close()\n");
-    door_open_state = false;
+    hw_open = false;
 }
 
 bool door_is_open(void)
 {
-    return door_open_state;
+    return hw_open;
 }
