@@ -51,6 +51,8 @@
 #include "config.h"
 #include "lock.h"
 #include "door.h"
+#include "relay.h"
+
 #include "uptime.h"
 
 #include "devices/devices.h"

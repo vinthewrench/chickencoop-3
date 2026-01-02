@@ -52,7 +52,7 @@ LDFLAGS := \
 #   NOTE: relative paths only (Make cannot tokenise spaces safely)
 # ------------------------------------------------------------
 SRCS := \
-	main.cpp \
+	main_firmware.cpp \
 	uart.cpp \
 	rtc.cpp \
 	uptime.cpp \
@@ -60,6 +60,8 @@ SRCS := \
 	../src/config_common.cpp \
 	../src/time_dst.cpp \
 	../src/scheduler.cpp \
+	../src/lock.cpp \
+	../src/door.cpp \
 	../src/scheduler_reconcile.cpp \
 	../src/next_event.cpp \
 	../src/config_events.cpp \
@@ -67,6 +69,7 @@ SRCS := \
 	../src/devices/devices.cpp \
 	../src/devices/door_device.cpp \
 	../src/devices/foo_device.cpp \
+	../src/devices/relay_device.cpp \
 	../src/resolve_when.cpp \
 	../src/console/console.cpp \
 	../src/console/console_cmds.cpp \
@@ -74,6 +77,8 @@ SRCS := \
 	../src/console/mini_printf.cpp \
 	platform/door_avr.cpp \
 	platform/lock_avr.cpp \
+	platform/relays_avr.cpp \
+	platform/i2c_avr.cpp \
 	platform/console_io_avr.cpp \
 	platform/config_eeprom.cpp \
 	platform/config_sw_avr.cpp

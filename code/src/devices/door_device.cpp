@@ -2,16 +2,27 @@
  * door_device.cpp
  *
  * Project: Chicken Coop Controller
- * Purpose: Door device abstraction
+ * Purpose: Door device abstraction (temporary hardware drive)
  *
- * Updated: 2026-01-01
+ * Notes:
+ *  - TEMPORARY: directly drives door_hw
+ *  - No timing, no blocking
+ *  - Device state reflects scheduler intent only
+ *  - Will be refactored to use door_control
+ *
+ * Updated: 2026-01-02
  */
 
 #include "device.h"
 #include "door.h"
+#include "door_hw.h"
 
 static dev_state_t door_state = DEV_STATE_UNKNOWN;
 
+/*
+ * Scheduler-declared state only.
+ * This is NOT physical position.
+ */
 static dev_state_t door_get_state(void)
 {
     return door_state;
@@ -24,10 +35,20 @@ static void door_set_state(dev_state_t state)
 
     door_state = state;
 
-    if (state == DEV_STATE_ON)
-        door_open();
-    else if (state == DEV_STATE_OFF)
-        door_close();
+    if (state == DEV_STATE_ON) {
+        /* OPEN */
+        door_hw_set_open_dir();
+        door_hw_enable();
+    }
+    else if (state == DEV_STATE_OFF) {
+        /* CLOSE */
+        door_hw_set_close_dir();
+        door_hw_enable();
+    }
+    else {
+        /* UNKNOWN → safest action is stop */
+        door_hw_stop();
+    }
 }
 
 static const char *door_state_string(dev_state_t state)

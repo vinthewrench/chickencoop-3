@@ -47,8 +47,12 @@ SRCS := \
 	devices.cpp \
 	door_device.cpp \
 	foo_device.cpp \
-	door_host.cpp \
-	lock_host.cpp \
+	relay_device.cpp \
+	relay_host.cpp \
+	door_hw_host.cpp \
+	lock_hw_host.cpp \
+	lock.cpp \
+	door.cpp \
 	console_io_host.cpp \
 	config_sw_host.cpp \
 	config_host.cpp \

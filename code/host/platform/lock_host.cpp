@@ -16,21 +16,13 @@
 #include "lock.h"
 #include "console/mini_printf.h"
 
-static bool lock_engaged = false;
 
 void lock_engage(void)
 {
     mini_printf("[HOST] lock_engage()\n");
-    lock_engaged = true;
 }
 
 void lock_release(void)
 {
     mini_printf("[HOST] lock_release()\n");
-    lock_engaged = false;
-}
-
-bool lock_is_engaged(void)
-{
-    return lock_engaged;
 }
