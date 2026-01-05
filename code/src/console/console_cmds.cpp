@@ -40,6 +40,7 @@
 #include "console/mini_printf.h"
 #include "time_dst.h"
 #include "console_time.h"
+#include "door_led.h"
 
 #include "events.h"
 #include "config_events.h"
@@ -859,6 +860,30 @@ static void cmd_lock(int argc, char **argv)
     console_puts("?\n");
 }
 
+static void cmd_led(int argc, char **argv)
+{
+    if (argc != 2) {
+        console_puts("usage: led off|red|green|pulse_red|pulse_green|blink_red|blink_green\n");
+        return;
+    }
+
+    const char *s = argv[1];
+
+    if (!strcmp(s, "off"))            door_led_set(DOOR_LED_OFF);
+    else if (!strcmp(s, "red"))       door_led_set(DOOR_LED_RED);
+    else if (!strcmp(s, "green"))     door_led_set(DOOR_LED_GREEN);
+    else if (!strcmp(s, "pulse_red")) door_led_set(DOOR_LED_PULSE_RED);
+    else if (!strcmp(s, "pulse_green")) door_led_set(DOOR_LED_PULSE_GREEN);
+    else if (!strcmp(s, "blink_red")) door_led_set(DOOR_LED_BLINK_RED);
+    else if (!strcmp(s, "blink_green")) door_led_set(DOOR_LED_BLINK_GREEN);
+    else {
+        console_puts("ERROR\n");
+        return;
+    }
+
+    console_puts("OK\n");
+}
+
 static void cmd_config(int, char **)
 {
     ensure_cfg_loaded();
@@ -1406,6 +1431,16 @@ typedef struct {
         "event add <device> <on|off> civil dawn    +/-MIN\n" \
         "event add <device> <on|off> civil dusk    +/-MIN\n" \
         "event delete <index>" \
+      ) \
+      X(led, 1, 1, cmd_led, \
+        "Control door LED", \
+        "led off\n" \
+        "led red\n" \
+        "led green\n" \
+        "led pulse_red\n" \
+        "led pulse_green\n" \
+        "led blink_red\n" \
+        "led blink_green\n" \
       )
 
  /* Commands that only exist when their handlers exist */

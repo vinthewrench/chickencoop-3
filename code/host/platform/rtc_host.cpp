@@ -20,6 +20,19 @@ static int g_hour;
 static int g_minute;
 static int g_second;
 
+
+/*
+ * Host-side RTC initialization stub.
+ *
+ * No hardware exists in the host build.
+ * This function exists solely to satisfy the
+ * shared RTC interface contract.
+ */
+void rtc_init(void)
+{
+    /* no-op */
+}
+
 /* Pull current local time from host */
 static void rtc_sync_from_host(void)
 {

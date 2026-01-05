@@ -58,6 +58,7 @@ SRCS := \
 	config_host.cpp \
 	rtc_host.cpp \
 	rtc_common.cpp \
+	door_led_host.cpp \
 	uptime_host.cpp
 
 # ------------------------------------------------------------

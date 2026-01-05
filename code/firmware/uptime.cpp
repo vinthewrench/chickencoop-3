@@ -42,12 +42,17 @@ void uptime_init(void)
     sei();
 }
 
-uint32_t uptime_seconds(void)
+uint32_t uptime_millis(void)
 {
     uint32_t ms;
     uint8_t sreg = SREG;
     cli();
     ms = g_millis;
     SREG = sreg;
-    return ms / 1000;
+    return ms;
+}
+
+uint32_t uptime_seconds(void)
+{
+    return uptime_millis() / 1000;
 }

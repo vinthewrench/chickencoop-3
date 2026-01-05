@@ -10,7 +10,7 @@
  *  - No DST or timezone logic (handled elsewhere)
  *  - Alarm interrupt used solely for wake from sleep
  *
- * Hardware assumptions (LOCKED v2.5):
+ * Hardware assumptions (LOCKED V3.0):
  *  - RTC: NXP PCF8523
  *  - INT output is open-drain, active-low, latched until AF is cleared
  *  - RTC INT is wired to PB7 (PCINT7)
@@ -21,7 +21,7 @@
  *  - Wake logic MUST confirm alarm source by reading RTC flags
  *  - PCINT edge behavior (assert + release) is expected and harmless
  *
- * Updated: 2026-01-02
+ * Updated: 2026-01-05
  */
 
 #include "rtc.h"
@@ -53,12 +53,36 @@
 #define REG_ALARM_WEEKDAY    0x0D
 
 /* Control bits */
-#define CTRL1_STOP_BIT       (1 << 5)
+#define CTRL1_STOP_BIT       (1 << 5)   /* 1 = oscillator stopped */
 #define CTRL2_AIE_BIT        (1 << 1)
 #define CTRL2_AF_BIT         (1 << 3)
 
 /* Alarm disable flag */
 #define ALARM_DISABLE        (1 << 7)
+
+
+/* --------------------------------------------------------------------------
+ * Bring-up / ownership
+ * -------------------------------------------------------------------------- */
+
+void rtc_init(void)
+{
+    /*
+     * RTC ownership hook.
+     *
+     * This function intentionally performs no policy decisions.
+     * No alarms are armed.
+     * No flags are cleared.
+     * No validation is performed.
+     *
+     * Purpose:
+     *  - Establish that the firmware owns the RTC hardware
+     *  - Provide a single, stable initialization point for RUN mode later
+     *
+     * All behavioral use of the RTC (alarms, sleep, scheduler)
+     * will be enabled only in RUN mode.
+     */
+}
 
 /* --------------------------------------------------------------------------
  * Helpers
@@ -72,6 +96,45 @@ static uint8_t bcd_to_bin(uint8_t v)
 static uint8_t bin_to_bcd(uint8_t v)
 {
     return (uint8_t)(((v / 10u) << 4) | (v % 10u));
+}
+
+/* --------------------------------------------------------------------------
+ * Oscillator / validity checks
+ * -------------------------------------------------------------------------- */
+
+/*
+ * Returns true if the RTC crystal oscillator is running.
+ * This directly reflects the CTRL1.STOP bit.
+ */
+bool rtc_oscillator_running(void)
+{
+    uint8_t c1;
+
+    if (!i2c_read(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1)) {
+        return false;
+    }
+
+    return (c1 & CTRL1_STOP_BIT) == 0;
+}
+
+/*
+ * Returns true if the stored time is considered valid.
+ * This checks the VL (Voltage Low) flag in the seconds register.
+ *
+ * Note:
+ *  - VL = 1 means time may be invalid due to power loss
+ *  - This does NOT indicate whether the oscillator is currently running
+ */
+bool rtc_time_is_set(void)
+{
+    uint8_t sec;
+
+    if (!i2c_read(PCF8523_ADDR7, REG_SECONDS, &sec, 1)) {
+        return false;
+    }
+
+    /* VL flag is bit 7 of seconds register */
+    return (sec & (1 << 7)) == 0;
 }
 
 /* --------------------------------------------------------------------------
@@ -109,18 +172,6 @@ void rtc_set_time(int y, int mo, int d,
     buf[6] = bin_to_bcd((uint8_t)(y % 100));
 
     (void)i2c_write(PCF8523_ADDR7, REG_SECONDS, buf, sizeof(buf));
-}
-
-bool rtc_time_is_set(void)
-{
-    uint8_t sec;
-
-    if (!i2c_read(PCF8523_ADDR7, REG_SECONDS, &sec, 1)) {
-        return false;
-    }
-
-    /* OS flag: 1 = oscillator stopped or invalid time */
-    return (sec & (1 << 7)) == 0;
 }
 
 /* --------------------------------------------------------------------------

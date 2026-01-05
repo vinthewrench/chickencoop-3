@@ -79,6 +79,7 @@ SRCS := \
 	platform/lock_avr.cpp \
 	platform/relays_avr.cpp \
 	platform/i2c_avr.cpp \
+	platform/door_led.cpp \
 	platform/console_io_avr.cpp \
 	platform/config_eeprom.cpp \
 	platform/config_sw_avr.cpp

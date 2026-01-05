@@ -21,3 +21,6 @@ void uptime_init(void);
 
 // Monotonic seconds since boot.
 uint32_t uptime_seconds(void);
+
+// Monotonic milliseconds since boot.
+uint32_t uptime_millis(void);
