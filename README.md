@@ -13,33 +13,66 @@ The build system is intentionally explicit and boring:
 - All object files live under `build/`
 - Host and firmware builds are independent
 
+Hardware for this repository is frozen at **Chicken Coop Controller V3.0**.
+Firmware and host code must conform to the shipped hardware.
+
 ---
 
 ## Repository Layout
 
 ```
 .
-├── Makefile                 # Top-level orchestrator
-├── README.md                # This document
-├── coop.cfg                 # Runtime configuration (example/default)
-├── firmware/                # AVR firmware (avr-g++)
+├── Makefile
+│   # Top-level build orchestrator
+│   # Invokes host/ and firmware/ builds
+│
+├── README.md
+│   # Project overview and build instructions
+│
+├── coop.cfg
+│   # Example/default runtime configuration for host testing
+│
+├── firmware/
+│   # AVR firmware for Chicken Coop Controller V3.0 (avr-g++)
 │   ├── Makefile
-│   ├── main_firmware.cpp    # Firmware entry point (CONFIG-only bring-up)
-│   ├── uart.cpp             # Firmware service
-│   ├── rtc.cpp              # Firmware service (RTC implementation)
-│   ├── uptime.cpp           # Firmware service
-│   └── platform/            # Board-specific AVR code (this hardware)
+│   ├── main_firmware.cpp
+│   │   # Firmware entry point
+│   │   # Deterministic, offline firmware for Hardware V3.0
+│   │
+│   ├── uart.cpp
+│   │   # UART service (console/debug)
+│   │
+│   ├── rtc.cpp
+│   │   # RTC service (PCF8523-backed)
+│   │
+│   ├── uptime.cpp
+│   │   # System uptime service
+│   │
+│   └── platform/
+│       # Board-specific AVR implementation (Hardware V3.0)
 │       ├── config_eeprom.cpp
+│       │   # Persistent configuration storage
 │       ├── config_sw_avr.cpp
+│       │   # Hardware config switch handling
 │       ├── console_io_avr.cpp
+│       │   # AVR-side console I/O
 │       ├── door_avr.cpp
+│       │   # Door motor control (real hardware)
 │       ├── lock_avr.cpp
+│       │   # Lock motor control (real hardware)
 │       ├── relays_avr.cpp
+│       │   # Relay pulse drivers
 │       └── i2c_avr.cpp
-├── host/                    # Desktop test console (clang++)
+│           # I2C implementation (RTC, peripherals)
+│
+├── host/
+│   # Desktop host simulator and test console (clang++)
 │   ├── Makefile
-│   ├── main_host.cpp        # Host simulator entry point
-│   └── platform/            # Simulated hardware + host glue
+│   ├── main_host.cpp
+│   │   # Host simulator entry point
+│   │
+│   └── platform/
+│       # Host-side hardware simulation and glue
 │       ├── config_host.cpp
 │       ├── config_sw_host.cpp
 │       ├── console_io_host.cpp
@@ -50,34 +83,59 @@ The build system is intentionally explicit and boring:
 │       ├── rtc_host.cpp
 │       ├── uptime_host.cpp
 │       └── relay_host.cpp
-└── src/                     # Shared code (no main, no generated files)
+│
+└── src/
+    # Shared, platform-independent logic
+    # No main(), no generated files, no hardware assumptions
     ├── config.h
     ├── config_common.cpp
     ├── config_sw.h
+    │
     ├── door.h
-    ├── door.cpp             # TEMP console/test stub
+    ├── door.cpp
+    │   # Shared door logic (used by host + firmware)
     ├── door_hw.h
+    │
     ├── lock.h
-    ├── lock.cpp             # TEMP console/test stub
+    ├── lock.cpp
+    │   # Shared lock logic (used by host + firmware)
     ├── lock_hw.h
+    │
     ├── rtc.h
     ├── rtc_common.cpp
-    ├── solar.cpp / solar.h
-    ├── time_dst.cpp / time_dst.h
+    │
+    ├── solar.cpp
+    ├── solar.h
+    │
+    ├── time_dst.cpp
+    ├── time_dst.h
+    │
     ├── uart.h
     ├── uptime.h
-    ├── scheduler.cpp / scheduler.h
-    ├── scheduler_reconcile.cpp / scheduler_reconcile.h
-    ├── next_event.cpp / next_event.h
+    │
+    ├── scheduler.cpp
+    ├── scheduler.h
+    ├── scheduler_reconcile.cpp
+    ├── scheduler_reconcile.h
+    ├── next_event.cpp
+    ├── next_event.h
     ├── events.h
+    │
     ├── relay.h
+    │
     ├── console/
-    │   ├── console.cpp / console.h
+    │   # Shared console implementation
+    │   ├── console.cpp
+    │   ├── console.h
     │   ├── console_cmds.cpp
-    │   ├── console_time.cpp / console_time.h
+    │   ├── console_time.cpp
+    │   ├── console_time.h
     │   ├── console_io.h
-    │   └── mini_printf.cpp / mini_printf.h
+    │   └── mini_printf.cpp
+    │       └── mini_printf.h
+    │
     └── devices/
+        # Abstract device model layer
         ├── device.h
         ├── devices.h
         ├── devices.cpp
@@ -148,7 +206,8 @@ exit
 ```
 
 The host build uses **clang++** and builds entirely under `host/build/`.
-The `host/src/` directory contains build artifacts only and is not source code.
+
+No source files live under `host/src/`. All shared logic comes from the top-level `src/` directory.
 
 ---
 
@@ -234,6 +293,9 @@ This system is fully offline and deterministic.
 
 ### Single source of truth
 Defined in the **top-level Makefile**:
+
+Note: `PROJECT_VERSION` refers to the **firmware/software version**, not the hardware revision.
+Hardware for this repository is **Chicken Coop Controller V3.0**.
 
 ```make
 PROJECT_VERSION := 2.6.x
