@@ -8,7 +8,7 @@
  */
 
 #include "device.h"
-#include "relay.h"
+#include "relay_hw.h"
 
 static dev_state_t relay1_state = DEV_STATE_UNKNOWN;
 static dev_state_t relay2_state = DEV_STATE_UNKNOWN;
@@ -59,8 +59,22 @@ static const char *relay_state_string(dev_state_t state)
     }
 }
 
+
+static void relay_device_init(void)
+{
+    static uint8_t init = 0;
+    if (init)
+        return;
+
+    relay_init();
+    relay1_set_state(DEV_STATE_OFF);
+    relay2_set_state(DEV_STATE_OFF);
+    init = 1;
+}
+
 Device relay1_device = {
     .name = "relay1",
+    .init = relay_device_init,
     .get_state = relay1_get_state,
     .set_state = relay1_set_state,
     .state_string = relay_state_string,
@@ -70,6 +84,7 @@ Device relay1_device = {
 
 Device relay2_device = {
     .name = "relay2",
+    .init = relay_device_init,
     .get_state = relay2_get_state,
     .set_state = relay2_set_state,
     .state_string = relay_state_string,

@@ -25,26 +25,22 @@
 #include "config.h"
 #include "config_sw.h"
 #include "console/console.h"
-#include "uart.h"
-#include "relay.h"
+#include "platform/uart.h"
 #include "rtc.h"
 #include "uptime.h"
 #include "door_led.h"
-#include "door_lock.h"
 #include "devices/devices.h"
+#include "devices/led_state_machine.h"
 
 int main(void)
 {
     /* ------------------------------------------------------------------
      * Basic bring-up
      * ------------------------------------------------------------------ */
-    uart_init();
-    relay_init();
     uptime_init();
-
     rtc_init();        /* RTC present; policy handled elsewhere */
-    door_led_init();
-    lock_init();
+
+    device_init();
 
     /* ------------------------------------------------------------------
      * Load persistent configuration (EEPROM, defaults on failure)
@@ -61,7 +57,7 @@ int main(void)
         config_consumed = true;
 
         if (!rtc_time_is_set()) {
-            door_led_set(DOOR_LED_BLINK_RED);
+            led_state_machine_set(LED_BLINK,LED_RED);
         }
 
         console_init();
@@ -69,8 +65,6 @@ int main(void)
             console_poll();
 
             uint32_t now_ms = uptime_millis();
-            door_led_tick(now_ms);
-            lock_tick(now_ms);
             device_tick(now_ms);
         }
     }
@@ -80,31 +74,25 @@ int main(void)
      * ------------------------------------------------------------------ */
 
     if (!rtc_time_is_set()) {
-        door_led_set(DOOR_LED_BLINK_RED);
+        led_state_machine_set(LED_BLINK,LED_RED);
         for (;;) {
             uint32_t now_ms = uptime_millis();
-            door_led_tick(now_ms);
-            lock_tick(now_ms);
             device_tick(now_ms);
         }
     }
 
     /* RTC valid: brief green, then idle */
-    door_led_set(DOOR_LED_GREEN);
-    uint32_t t0_ms = uptime_millis();
+    led_state_machine_set(LED_ON,LED_GREEN);
+   uint32_t t0_ms = uptime_millis();
     while ((uint32_t)(uptime_millis() - t0_ms) < 1000u) {
         uint32_t now_ms = uptime_millis();
-        door_led_tick(now_ms);
-        lock_tick(now_ms);
         device_tick(now_ms);
     }
 
-    door_led_set(DOOR_LED_OFF);
+    led_state_machine_set(LED_OFF,LED_GREEN);
 
     for (;;) {
         uint32_t now_ms = uptime_millis();
-        door_led_tick(now_ms);
-        lock_tick(now_ms);
         device_tick(now_ms);
     }
 }

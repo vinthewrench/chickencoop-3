@@ -33,6 +33,5 @@ void console_puts(const char *s)
 
 
 void console_terminal_init(void){
-// we allready call  uart_init();
-
+    uart_init();
 }

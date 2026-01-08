@@ -40,8 +40,6 @@
 #include "console/mini_printf.h"
 #include "time_dst.h"
 #include "console_time.h"
-#include "door_led.h"
-
 #include "events.h"
 #include "config_events.h"
 #include "resolve_when.h"
@@ -50,12 +48,10 @@
 #include "solar.h"
 #include "rtc.h"
 #include "config.h"
-#include "door_lock.h"
-#include "relay.h"
-
 #include "uptime.h"
 
 #include "devices/devices.h"
+#include "devices/led_state_machine.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -677,74 +673,39 @@ static void cmd_set(int argc, char **argv)
     console_puts("?\n");
 }
 
-/*
- * Parse a device state from user input.
- *
- * Rules:
- *  - Prefer device-defined state_string()
- *  - Case-insensitive match
- *  - Fallback to "on"/"off"
- *  - No scheduler or device knowledge here
- */
-
- static bool parse_device_state(const Device *d,
-                                const char *arg,
-                                dev_state_t *out)
- {
-     if (!d || !arg || !out)
-         return false;
-
-     /* Device-specific names first */
-     if (d->state_string) {
-         for (dev_state_t s = DEV_STATE_UNKNOWN;
-              s <= DEV_STATE_ON;
-              s = (dev_state_t)(s + 1)) {
-
-             const char *name = d->state_string(s);
-             if (!name)
-                 continue;
-
-             if (!strcasecmp(arg, name)) {
-                 *out = s;
-                 return true;
-             }
-         }
-     }
-
-     /* Fallback */
-     if (!strcasecmp(arg, "on")) {
-         *out = DEV_STATE_ON;
-         return true;
-     }
-
-     if (!strcasecmp(arg, "off")) {
-         *out = DEV_STATE_OFF;
-         return true;
-     }
-
-     return false;
- }
-
  static void cmd_device(int argc, char **argv)
  {
      /* device */
      if (argc == 1) {
-         for (size_t i = 0; i < device_count; i++) {
-             const Device *d = devices[i];
-             if (!d)
+         for (size_t i = 0; i < device_count(); i++) {
+
+            uint8_t id;
+            dev_state_t st = DEV_STATE_UNKNOWN;
+            const char *str = "?";
+            const char *name = "?";
+
+           if(! device_id(i, &id))
                  continue;
 
-             dev_state_t st = DEV_STATE_UNKNOWN;
-             if (d->get_state)
-                 st = d->get_state();
+             if (!device_get_state_by_id(id,&st)) {
+                 console_puts("ERROR\n");
+                 return;
+             }
 
-             const char *s = "?";
-             if (d->state_string)
-                 s = d->state_string(st);
+             if (!device_name(id,&name)) {
+                 console_puts("ERROR\n");
+                 return;
+             }
 
-             console_puts(d->name);
+             if (!device_get_state_string(id,st,&str)) {
+                 console_puts("ERROR\n");
+                 return;
+             }
+
+
+             console_puts(name);
              console_puts(": ");
-             console_puts(s);
+             console_puts(str);
              console_putc('\n');
          }
          return;
@@ -755,24 +716,22 @@ static void cmd_set(int argc, char **argv)
          uint8_t id;
 
          /* NOTE: 0 == fail */
-         if (device_lookup_id(argv[1], &id) == 0) {
-             console_puts("ERROR\n");
-             return;
-         }
-
-         const Device *d = devices[id];
-         if (!d || !d->set_state) {
+         if (!device_lookup_id(argv[1], &id)) {
              console_puts("ERROR\n");
              return;
          }
 
          dev_state_t want;
-         if (!parse_device_state(d, argv[2], &want)) {
+         if (!device_parse_state_by_id(id, argv[2], &want)) {
              console_puts("ERROR\n");
              return;
          }
 
-         d->set_state(want);
+         if (!device_set_state_by_id(id,want)) {
+             console_puts("ERROR\n");
+             return;
+         }
+
          console_puts("OK\n");
          return;
      }
@@ -870,22 +829,30 @@ static void cmd_door(int argc, char **argv)
 
 static void cmd_lock(int argc, char **argv)
 {
+    /* Map door → device door on|off */
+    char *dev_argv[3];
+    dev_argv[0] = (char *)"device";
+    dev_argv[1] = (char *)"lock";
+
+
     if (argc != 2) {
         console_puts("usage: lock engage|release\n");
         return;
     }
 
-    if (!strcmp(argv[1], "engage")) {
-        console_puts("LOCK: engage\n");
-        lock_engage();
+    if (!strcmp(argv[1], "lock")) {
+        dev_argv[2] = (char *)"on";
+    }
+    else if (!strcmp(argv[1], "unlock")) {
+        dev_argv[2] = (char *)"off";
+    }
+    else {
+        console_puts("?\n");
         return;
     }
 
-    if (!strcmp(argv[1], "release")) {
-        console_puts("LOCK: release\n");
-        lock_release();
-        return;
-    }
+    /* Delegate to canonical implementation */
+    cmd_device(3, dev_argv);
 
     console_puts("?\n");
 }
@@ -899,13 +866,13 @@ static void cmd_led(int argc, char **argv)
 
     const char *s = argv[1];
 
-    if (!strcmp(s, "off"))            door_led_set(DOOR_LED_OFF);
-    else if (!strcmp(s, "red"))       door_led_set(DOOR_LED_RED);
-    else if (!strcmp(s, "green"))     door_led_set(DOOR_LED_GREEN);
-    else if (!strcmp(s, "pulse_red")) door_led_set(DOOR_LED_PULSE_RED);
-    else if (!strcmp(s, "pulse_green")) door_led_set(DOOR_LED_PULSE_GREEN);
-    else if (!strcmp(s, "blink_red")) door_led_set(DOOR_LED_BLINK_RED);
-    else if (!strcmp(s, "blink_green")) door_led_set(DOOR_LED_BLINK_GREEN);
+    if (!strcmp(s, "off"))               led_state_machine_set(LED_OFF,LED_RED );
+    else if (!strcmp(s, "red"))         led_state_machine_set(LED_ON, LED_RED);
+    else if (!strcmp(s, "green"))       led_state_machine_set(LED_ON, LED_GREEN);
+    else if (!strcmp(s, "pulse_red"))   led_state_machine_set(LED_PULSE, LED_RED);
+    else if (!strcmp(s, "pulse_green")) led_state_machine_set(LED_PULSE, LED_GREEN);
+    else if (!strcmp(s, "blink_red"))   led_state_machine_set(LED_BLINK, LED_RED);
+    else if (!strcmp(s, "blink_green")) led_state_machine_set(LED_BLINK, LED_GREEN);
     else {
         console_puts("ERROR\n");
         return;
@@ -1101,25 +1068,23 @@ static void cmd_event(int argc, char **argv)
              const Event *ev = &events[r[i].index];
              uint16_t minute = r[i].minute;
 
-             const char *dev = "?";
-             if (ev->device_id < device_count) {
-                 const Device *d = devices[ev->device_id];
-                 if (d && d->name)
-                     dev = d->name;
-             }
+             const char *name = "?";
 
-             /* Time first, index secondary */
-             mini_printf("%02u:%02u #%u ",
-                         (unsigned)(minute / 60),
-                         (unsigned)(minute % 60),
-                         (unsigned)r[i].index);
+            if (device_name(ev->device_id,&name)) {
 
-             console_puts(dev);
-             console_putc(' ');
-             console_puts(action_name(ev->action));
-             console_putc(' ');
-             when_print(&ev->when);
-             console_putc('\n');
+                /* Time first, index secondary */
+                mini_printf("%02u:%02u #%u ",
+                            (unsigned)(minute / 60),
+                            (unsigned)(minute % 60),
+                            (unsigned)r[i].index);
+
+                console_puts(name);
+                console_putc(' ');
+                console_puts(action_name(ev->action));
+                console_putc(' ');
+                when_print(&ev->when);
+                console_putc('\n');
+            }
          }
          return;
      }
@@ -1164,13 +1129,15 @@ static void cmd_event(int argc, char **argv)
         Event ev;
         memset(&ev, 0, sizeof(ev));
 
+         console_puts("add\n");
+
         if (argc < 5) {
-            console_puts("ERROR\n");
+            console_puts("ERROR ARGS\n");
             return;
         }
 
         if (!device_lookup_id(argv[2], &ev.device_id)) {
-            console_puts("ERROR\n");
+            console_puts("ERROR DEVICE NAME \n");
             return;
         }
 
@@ -1179,7 +1146,7 @@ static void cmd_event(int argc, char **argv)
         else if (!strcmp(argv[3], "off"))
             ev.action = ACTION_OFF;
         else {
-            console_puts("ERROR\n");
+            console_puts("ERROR ACTION\n");
             return;
         }
 
@@ -1187,7 +1154,7 @@ static void cmd_event(int argc, char **argv)
         if (argc == 5) {
             int hh, mm;
             if (!parse_time_hm(argv[4], &hh, &mm)) {
-                console_puts("ERROR\n");
+                console_puts("ERROR2\n");
                 return;
             }
             ev.when.ref = REF_MIDNIGHT;
@@ -1199,7 +1166,7 @@ static void cmd_event(int argc, char **argv)
         if (argc == 6 && !strcmp(argv[4], "midnight")) {
             int hh, mm;
             if (!parse_time_hm(argv[5], &hh, &mm)) {
-                console_puts("ERROR\n");
+                console_puts("ERROR MIDNIGHT\n");
                 return;
             }
             ev.when.ref = REF_MIDNIGHT;
@@ -1215,13 +1182,13 @@ static void cmd_event(int argc, char **argv)
             else if (!strcmp(argv[5], "sunset"))
                 ev.when.ref = REF_SOLAR_STD_SET;
             else {
-                console_puts("ERROR\n");
+                console_puts("ERROR SOLAR\n");
                 return;
             }
 
             int off;
             if (!parse_signed_int(argv[6], &off)) {
-                console_puts("ERROR\n");
+                console_puts("ERROR5\n");
                 return;
             }
 
@@ -1237,13 +1204,13 @@ static void cmd_event(int argc, char **argv)
             else if (!strcmp(argv[5], "dusk"))
                 ev.when.ref = REF_SOLAR_CIV_SET;
             else {
-                console_puts("ERROR\n");
+                console_puts("ERROR6\n");
                 return;
             }
 
             int off;
             if (!parse_signed_int(argv[6], &off)) {
-                console_puts("ERROR\n");
+                console_puts("ERROR7\n");
                 return;
             }
 
@@ -1251,7 +1218,7 @@ static void cmd_event(int argc, char **argv)
             goto add_event;
         }
 
-        console_puts("ERROR\n");
+        console_puts("ERROR OTHER\n");
         return;
 
 add_event:ev.refnum = 0;
@@ -1339,19 +1306,16 @@ static void cmd_next(int argc, char **argv)
 
     const Event *ev = &events[idx];
 
-    const char *dev = "?";
-    if (ev->device_id < device_count) {
-        const Device *d = devices[ev->device_id];
-        if (d && d->name)
-            dev = d->name;
-    }
+    const char *name = "?";
 
-    console_puts(dev);
-    console_putc(' ');
-    console_puts(action_name(ev->action));
-    console_putc(' ');
-    when_print(&ev->when);
-    console_putc('\n');
+    if (device_name(ev->device_id,&name)) {
+        console_puts(name);
+        console_putc(' ');
+        console_puts(action_name(ev->action));
+        console_putc(' ');
+        when_print(&ev->when);
+        console_putc('\n');
+    }
 }
 
 #ifdef HOST_BUILD

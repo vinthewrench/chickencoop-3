@@ -43,6 +43,11 @@ static const char *door_state_string(dev_state_t state)
     }
 }
 
+static void door_init(void)
+{
+    door_sm_init();
+}
+
 static void door_tick(uint32_t now_ms)
 {
     door_sm_tick(now_ms);
@@ -54,6 +59,7 @@ static void door_tick(uint32_t now_ms)
 
 Device door_device = {
     .name         = "door",
+    .init         = door_init,
     .get_state    = door_get_state,
     .set_state    = door_set_state,
     .state_string = door_state_string,

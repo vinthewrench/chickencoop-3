@@ -1,5 +1,5 @@
 /*
- * relay.h
+ * relay_hw.h
  *
  * Project: Chicken Coop Controller
  * Purpose: Relay control interface

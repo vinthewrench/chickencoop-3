@@ -53,9 +53,6 @@ LDFLAGS := \
 # ------------------------------------------------------------
 SRCS := \
 	main_firmware.cpp \
-	uart.cpp \
-	rtc.cpp \
-	uptime.cpp \
 	../src/solar.cpp \
 	../src/config_common.cpp \
 	../src/time_dst.cpp \
@@ -68,6 +65,10 @@ SRCS := \
 	../src/devices/door_device.cpp \
 	../src/devices/door_state_machine.cpp \
 	../src/devices/foo_device.cpp \
+	../src/devices/led_device.cpp \
+	../src/devices/led_state_machine.cpp \
+	../src/devices/lock_state_machine.cpp \
+	../src/devices/lock_device.cpp \
 	../src/devices/relay_device.cpp \
 	../src/resolve_when.cpp \
 	../src/console/console.cpp \
@@ -78,10 +79,15 @@ SRCS := \
 	platform/door_lock_avr.cpp \
 	platform/relays_avr.cpp \
 	platform/i2c_avr.cpp \
-	platform/door_led.cpp \
+	platform/door_led_avr.cpp \
 	platform/console_io_avr.cpp \
 	platform/config_eeprom.cpp \
-	platform/config_sw_avr.cpp
+	platform/config_sw_avr.cpp \
+	platform/rtc.cpp \
+	platform/uptime.cpp \
+	platform/uart.cpp
+
+
 
 # ------------------------------------------------------------
 # Objects (ALL under build/)

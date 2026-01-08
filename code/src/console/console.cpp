@@ -130,13 +130,13 @@ void console_poll(void)
 
     last_activity_sec = uptime_seconds();
 
-    /* Enter / Return */
+    /* --------------------------------------------------
+     * Newline / Return
+     * -------------------------------------------------- */
     if (c == '\n' || c == '\r') {
         console_putc('\n');
 
         buf[idx] = '\0';
-
-        /* strip comments before tokenizing */
         strip_comment(buf);
 
         char *argv[8];
@@ -156,7 +156,9 @@ void console_poll(void)
         return;
     }
 
-    /* Ctrl-U: kill entire line */
+    /* --------------------------------------------------
+     * Ctrl-U: kill entire line
+     * -------------------------------------------------- */
     if (c == 0x15) {
         while (idx > 0) {
             console_puts("\b \b");
@@ -165,14 +167,21 @@ void console_poll(void)
         return;
     }
 
-    /* Backspace / Delete */
+    /* --------------------------------------------------
+     * Backspace / Delete
+     * -------------------------------------------------- */
     if ((c == 0x08 || c == 0x7f) && idx > 0) {
         idx--;
         console_puts("\b \b");
         return;
     }
 
-    /* Normal character */
+    /* --------------------------------------------------
+     * Printable ASCII only
+     * -------------------------------------------------- */
+    if (c < 0x20 || c > 0x7E)
+        return;
+
     if (idx < MAX_LINE - 1) {
         buf[idx++] = (char)c;
         console_putc((char)c);

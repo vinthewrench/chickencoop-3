@@ -30,7 +30,7 @@
  * Updated: 2025-12-29
  */
 
-#include "relay.h"
+#include "relay_hw.h"
 
 #include <avr/io.h>
 #include <util/delay.h>

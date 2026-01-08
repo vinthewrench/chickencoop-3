@@ -21,10 +21,7 @@
 int main(void)
 {
     uptime_init();
-    door_led_init();
-
-    /* Host has no RTC persistence; always indicate setup-needed */
-    door_led_set(DOOR_LED_BLINK_RED);
+    device_init();
 
     console_init();
 

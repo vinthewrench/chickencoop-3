@@ -3,43 +3,58 @@
 #include <stdint.h>
 
 /*
- * Door switch LED control
+ * door_led_hw.h
  *
- * This module provides a small, fixed vocabulary for driving the
- * bi-color door switch LED via platform-specific implementations.
+ * Project: Chicken Coop Controller
+ * Purpose: Low-level door status LED hardware driver
  *
- * Semantics:
- *  - OFF            : LED off
- *  - RED / GREEN    : steady color
- *  - PULSE_*        : finite acknowledgment pulse, auto-returns to OFF
- *  - BLINK_*        : continuous attention indicator, runs until changed
- *
- * Timing and electrical behavior are platform-defined.
- * Callers express intent only.
+ * Notes:
+ *  - Hardware-only layer
+ *  - No timing, no state, no policy
+ *  - All animation and behavior handled by led_state_machine
+ *  - Safe to call repeatedly
+ *  - Host build may implement as no-op or log-only
  */
-
-typedef enum {
-    DOOR_LED_OFF = 0,
-
-    DOOR_LED_RED,
-    DOOR_LED_GREEN,
-
-    DOOR_LED_PULSE_RED,
-    DOOR_LED_PULSE_GREEN,
-
-    DOOR_LED_BLINK_RED,
-    DOOR_LED_BLINK_GREEN
-} door_led_mode_t;
-
-/* Initialize LED subsystem (idempotent) */
-void door_led_init(void);
-
-/* Set LED mode (idempotent) */
-void door_led_set(door_led_mode_t mode);
 
 /*
- * Periodic service function.
- * Firmware uses this to advance timing-based behavior.
- * Host implementation is a no-op.
+ * Initialize LED hardware.
+ *
+ * - Configures GPIO and PWM peripherals as needed
+ * - Leaves LED in OFF state
+ * - Safe to call more than once
  */
-void door_led_tick(uint32_t now_ms);
+void door_led_init(void);
+
+/*
+ * Turn LED fully off.
+ *
+ * - Disables PWM
+ * - Forces both LED channels inactive
+ */
+void door_led_off(void);
+
+/*
+ * Drive GREEN LED channel using PWM.
+ *
+ * Parameters:
+ *  - duty: PWM duty cycle (0–255)
+ *
+ * Behavior:
+ *  - Enables PWM on GREEN channel only
+ *  - Forces RED channel inactive
+ *  - Does not block or delay
+ */
+void door_led_green_pwm(uint8_t duty);
+
+/*
+ * Drive RED LED channel using PWM.
+ *
+ * Parameters:
+ *  - duty: PWM duty cycle (0–255)
+ *
+ * Behavior:
+ *  - Enables PWM on RED channel only
+ *  - Forces GREEN channel inactive
+ *  - Does not block or delay
+ */
+void door_led_red_pwm(uint8_t duty);

@@ -1,5 +1,5 @@
 /*
- * lock_avr.cpp
+ * relay_host.cpp
  *
  * Project: Chicken Coop Controller
  * Purpose: Source file
@@ -13,8 +13,14 @@
  */
 
 // firmware/platform/relay_host.cpp
-#include "relay.h"
+#include "relay_hw.h"
 #include "console/mini_printf.h"
+
+void relay_init(void){
+    /* nop */
+    mini_printf("[HOST] relay INIT()\n");
+
+}
 
 void relay1_set()
 {

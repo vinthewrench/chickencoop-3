@@ -26,7 +26,7 @@ typedef enum {
 /* Generic device vtable */
 typedef struct {
     const char *name;
-
+    void        (*init)(void);
     dev_state_t (*get_state)(void);
     void        (*set_state)(dev_state_t state);
     const char *(*state_string)(dev_state_t state);

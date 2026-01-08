@@ -25,9 +25,9 @@ static void foo_set_state(dev_state_t state)
     foo_state = state;
 
     if (state == DEV_STATE_ON)
-        mini_printf("[FOO] ON\n");
+        mini_printf("[HOST] foo ON\n");
     else if (state == DEV_STATE_OFF)
-        mini_printf("[FOO] OFF\n");
+        mini_printf("[HOST] foo OFF\n");
 }
 
 static const char *foo_state_string(dev_state_t state)
@@ -39,8 +39,23 @@ static const char *foo_state_string(dev_state_t state)
     }
 }
 
+
+static void foo_device_init(void)
+{
+    static uint8_t init = 0;
+    if (init)
+        return;
+
+    // foo HW init
+    mini_printf("[HOST] foo INIT\n");
+    foo_set_state(DEV_STATE_OFF);
+    init = 1;
+}
+
+
 Device foo_device = {
     .name = "foo",
+    .init = foo_device_init,
     .get_state = foo_get_state,
     .set_state = foo_set_state,
     .state_string = foo_state_string,
