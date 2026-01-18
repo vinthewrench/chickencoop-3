@@ -1,6 +1,4 @@
 
-export PROJECT_VERSION := 2.6.2
-
 .PHONY: host firmware clean
 
 # Default: build everything
