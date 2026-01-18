@@ -44,6 +44,9 @@
 #include "devices/devices.h"
 #include "devices/led_state_machine.h"
 
+#include "platform/gpio_avr.h"
+
+
 int main(void)
 {
     /* ----------------------------------------------------------
@@ -51,6 +54,9 @@ int main(void)
      * ---------------------------------------------------------- */
     uptime_init();
     rtc_init();
+
+    coop_gpio_init();
+
     device_init();
     scheduler_init();
 

@@ -61,28 +61,70 @@
 #define ALARM_DISABLE        (1 << 7)
 
 
-/* --------------------------------------------------------------------------
- * Bring-up / ownership
- * -------------------------------------------------------------------------- */
 
-void rtc_init(void)
-{
-    /*
-     * RTC ownership hook.
-     *
-     * This function intentionally performs no policy decisions.
-     * No alarms are armed.
-     * No flags are cleared.
-     * No validation is performed.
-     *
-     * Purpose:
-     *  - Establish that the firmware owns the RTC hardware
-     *  - Provide a single, stable initialization point for RUN mode later
-     *
-     * All behavioral use of the RTC (alarms, sleep, scheduler)
-     * will be enabled only in RUN mode.
-     */
-}
+/**
+ * @brief Initialize RTC hardware control state (PCF8523).
+ *
+ * This function establishes firmware ownership of the RTC by normalizing
+ * control registers into a known, safe baseline state.
+ *
+ * Responsibilities:
+ * - Ensures the 32.768 kHz crystal oscillator is running by clearing
+ *   CTRL1.STOP if set.
+ * - Disables the alarm interrupt (AIE) to prevent unintended wake events.
+ * - Clears any stale alarm flag (AF) to release the INT line if latched.
+ *
+ * Non-responsibilities (intentional):
+ * - Does NOT set or validate the current time.
+ * - Does NOT clear the VL (Voltage Low) flag.
+ * - Does NOT arm alarms or configure scheduling behavior.
+ * - Does NOT make any policy decisions.
+ *
+ * Rationale:
+ * The PCF8523 does not guarantee a deterministic control-register state
+ * after power transitions or backup-domain operation. In particular,
+ * the oscillator may be stopped (CTRL1.STOP = 1), causing timekeeping
+ * to halt even when VBAT is present.
+ *
+ * This function performs mandatory hardware normalization only. Higher-
+ * level firmware is responsible for interpreting RTC validity, setting
+ * time, and enabling alarms during RUN mode.
+ *
+ * This function is safe to call multiple times.
+ */
+
+ void rtc_init(void)
+ {
+     uint8_t c1;
+     uint8_t c2;
+
+     /*
+      * Take ownership of RTC control state.
+      *
+      * Policy-free:
+      *  - Do NOT set time
+      *  - Do NOT clear VL
+      *  - Do NOT arm alarms
+      *
+      * Hardware normalization only.
+      */
+
+     /* ---- CONTROL_1: ensure oscillator is running ---- */
+     if (i2c_read(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1)) {
+         if (c1 & CTRL1_STOP_BIT) {
+             c1 &= (uint8_t)~CTRL1_STOP_BIT;
+             (void)i2c_write(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1);
+         }
+     }
+
+     /* ---- CONTROL_2: disable alarm interrupt, clear stale AF ---- */
+     if (i2c_read(PCF8523_ADDR7, REG_CONTROL_2, &c2, 1)) {
+         c2 &= (uint8_t)~CTRL2_AIE_BIT;  /* alarms off by default */
+         c2 &= (uint8_t)~CTRL2_AF_BIT;   /* release INT if latched */
+         (void)i2c_write(PCF8523_ADDR7, REG_CONTROL_2, &c2, 1);
+     }
+ }
+
 
 /* --------------------------------------------------------------------------
  * Helpers

@@ -25,13 +25,11 @@
  * Updated: 2026-01-05
  */
 
+ #include "gpio_avr.h"
+
 #include "door_led.h"
 
 #include <avr/io.h>
-
-/* PB5 / PB6 drive DRV8212 */
-#define LED_IN1 PB5   /* GREEN */
-#define LED_IN2 PB6   /* RED */
 
 #define LED_PULSE_MS   800
 #define LED_BLINK_ON   400

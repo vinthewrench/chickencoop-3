@@ -39,12 +39,9 @@
  * Configuration
  * -------------------------------------------------------------------------- */
 
-#define RELAY_PULSE_MS  20
+#include "gpio_avr.h"
 
-#define RELAY1_SET_BIT    PD5
-#define RELAY1_RESET_BIT  PD4
-#define RELAY2_SET_BIT    PD6
-#define RELAY2_RESET_BIT  PD7
+#define RELAY_PULSE_MS  20
 
 #define RELAY_ALL_BITS \
     ((1 << RELAY1_SET_BIT)   | \

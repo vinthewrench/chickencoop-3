@@ -87,7 +87,8 @@ SRCS := \
 	platform/system_sleep_avr.cpp \
 	platform/rtc.cpp \
 	platform/uptime.cpp \
-	platform/uart.cpp
+	platform/uart.cpp \
+	platform/gpio_avr.cpp
 
 
 
@@ -138,7 +139,7 @@ $(PROJECT).lst: $(PROJECT).elf
 # Flashing (preserve EEPROM, no chip erase)
 # Use for iterative bring-up and debugging
 # ------------------------------------------------------------
-flash: $(PROJECT).hex
+flash-part: $(PROJECT).hex
 	$(AVRDUDE) -c $(PROGRAMMER) -P $(PORT) -p $(AVRDUDE_MCU) \
 		-B 50 -D \
 		-U flash:w:"$<":i
@@ -147,7 +148,7 @@ flash: $(PROJECT).hex
 # Flashing FRESH (full chip erase, EEPROM still preserved)
 # Use when changing memory layout or after heavy refactors
 # ------------------------------------------------------------
-flash-all: $(PROJECT).hex
+flash: $(PROJECT).hex
 	$(AVRDUDE) -c $(PROGRAMMER) -P $(PORT) -p $(AVRDUDE_MCU) \
 		-B 50 \
 		-U flash:w:"$<":i

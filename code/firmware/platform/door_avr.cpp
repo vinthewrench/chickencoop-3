@@ -26,9 +26,7 @@
 /* DOOR_INB -> PF6 (pin 37) */
 /* DOOR_EN  -> PF7 (pin 36) */
 
-#define DOOR_INA_BIT   (1u << PF5)
-#define DOOR_INB_BIT   (1u << PF6)
-#define DOOR_EN_BIT    (1u << PF7)
+#include "gpio_avr.h"
 
 /* --------------------------------------------------------------------------
  * Internal helpers (masked writes only)

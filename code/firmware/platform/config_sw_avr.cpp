@@ -10,52 +10,51 @@
  *  - No network dependencies
  *  - CONFIG is sampled once per boot and cached
  *
- * Hardware assumptions (LOCKED v2.5):
+ * Hardware assumptions (LOCKED):
  *  - CONFIG slide switch is a static strap set BEFORE reset/power-up
- *  - Switch connects PC6 to GND when ON (active-low)
- *  - External pull-up resistor REQUIRED (~10 kΩ to VCC)
- *  - Internal pull-up enabled as secondary safety only
+ *
+ * Electrical behavior (per schematic + verified):
+ *  - Switch OPEN    → PC6 pulled HIGH → CONFIG MODE
+ *  - Switch CLOSED  → PC6 tied to GND  → NORMAL MODE
+ *
+ * Firmware rules:
+ *  - GPIO direction and pull-up configured in coop_gpio_init()
  *  - CONFIG is sampled once at boot and then ignored
  *  - CONFIG is NOT a wake source
  *
  * Updated: 2026-01-16
  */
 
-// firmware/platform/config_sw_avr.cpp
 #include "config_sw.h"
 #include <avr/io.h>
-
-/*
- * If wiring or polarity ever changes, this is the only file
- * that should need to be modified.
- */
-#define CONFIG_SW_BIT PC6
+#include "gpio_avr.h"
 
 /*
  * Read CONFIG strap once at boot.
- * Returns true if CONFIG MODE is active.
+ *
+ * Returns:
+ *   true  = CONFIG MODE active
+ *   false = normal operation
+ *
+ * ACTIVE-HIGH:
+ *   PC6 HIGH -> CONFIG MODE
+ *   PC6 LOW  -> normal mode
  */
 static bool read_hw_state_once(void)
 {
-    /* PC6 as input */
-    DDRC &= (uint8_t)~_BV(CONFIG_SW_BIT);
-
-    /* internal pull-up (backup only) */
-    PORTC |= _BV(CONFIG_SW_BIT);
-
-    /* allow pin + RC + pull-up to settle */
+    /* Allow pin + RC + pull-up to settle after reset */
     for (volatile uint8_t i = 0; i < 50; i++) {
         __asm__ __volatile__("nop");
     }
 
-    /* active-low: LOW = CONFIG enabled */
+    /* Active-HIGH: HIGH means CONFIG enabled */
     return (PINC & _BV(CONFIG_SW_BIT)) != 0;
 }
 
 /*
- * Public API:
- *   true  = CONFIG mode active
- *   false = normal operation
+ * Public API
+ *
+ * CONFIG switch state is sampled once per boot and cached.
  */
 bool config_sw_state(void)
 {
