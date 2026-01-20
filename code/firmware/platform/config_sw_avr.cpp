@@ -18,7 +18,6 @@
  *  - Switch CLOSED  → PC6 tied to GND  → NORMAL MODE
  *
  * Firmware rules:
- *  - GPIO direction and pull-up configured in coop_gpio_init()
  *  - CONFIG is sampled once at boot and then ignored
  *  - CONFIG is NOT a wake source
  *
@@ -42,6 +41,10 @@
  */
 static bool read_hw_state_once(void)
 {
+    /* Force PC6 into a known-good input state */
+    DDRC  &= (uint8_t)~_BV(CONFIG_SW_BIT);   // input
+    PORTC |=  _BV(CONFIG_SW_BIT);            // enable pull-up (safety net)
+
     /* Allow pin + RC + pull-up to settle after reset */
     for (volatile uint8_t i = 0; i < 50; i++) {
         __asm__ __volatile__("nop");

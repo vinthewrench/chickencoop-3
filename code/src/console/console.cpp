@@ -78,7 +78,11 @@ void console_init(void)
 
         console_terminal_init();
 
-        mini_printf("\n\nChicken Coop Controller %s\n", PROJECT_VERSION);
+         console_puts("Chicken Coop Controller ");
+         console_puts(PROJECT_VERSION);
+         console_puts("\n");
+
+     //   mini_printf("\n\nChicken Coop Controller %s\n", PROJECT_VERSION);
 
         // Load configuration
         bool cfg_ok = config_load(&g_cfg);
