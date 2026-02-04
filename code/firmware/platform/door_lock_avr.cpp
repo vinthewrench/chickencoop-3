@@ -177,6 +177,14 @@ void door_lock_release(void)
      * INA = 0, INB = 1
      */
     lock_pulse(0, 1);
+
+    /* Mechanical settle window */
+    uint16_t ms = g_cfg.lock_settle_ms;
+    if (ms > 2000)
+        ms = 2000;   /* sanity cap */
+
+    while (ms--)
+        _delay_ms(1);
 }
 
 void door_lock_stop(void)

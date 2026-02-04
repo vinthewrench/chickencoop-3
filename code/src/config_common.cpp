@@ -55,6 +55,7 @@ void config_defaults(struct config *cfg)
       cfg->lock_pulse_ms  = 500;    /* 500 ms solenoid pulse */
 
       cfg->door_settle_ms = 2000;   /* allow gravity + obstruction to clear */
+      cfg->lock_settle_ms = 500;    /* time after unlock before motion */
 
     /* ---- Any future fields MUST be initialized here ---- */
 }

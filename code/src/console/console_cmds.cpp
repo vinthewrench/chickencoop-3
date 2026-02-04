@@ -817,6 +817,26 @@ static void cmd_set(int argc, char **argv)
         return;
     }
 
+    /* --------------------------------------------------
+     * set lock_settle_ms <ms>
+     *  time after unlock before motion
+     * -------------------------------------------------- */
+    if (!strcmp(argv[1], "lock_settle_ms") && argc == 3) {
+        int v = atoi(argv[2]);
+
+        /* Hard safety bounds */
+        if (v > 2001) {
+            console_puts("ERROR\n");
+            return;
+        }
+
+        g_cfg.lock_settle_ms = (uint16_t)v;
+        g_cfg_dirty = true;
+
+        console_puts("OK\n");
+        return;
+    }
+
 
     /* --------------------------------------------------
      * set door_travel_ms <ms>
@@ -1141,8 +1161,9 @@ static void cmd_config(int, char **)
 
     /* mechanical timing */
      mini_printf("door_travel_ms : %u\n", g_cfg.door_travel_ms);
-     mini_printf("lock_pulse_ms  : %u\n", g_cfg.lock_pulse_ms);
      mini_printf("door_settle_ms : %u\n", g_cfg.door_settle_ms);
+     mini_printf("lock_pulse_ms  : %u\n", g_cfg.lock_pulse_ms);
+     mini_printf("lock_settle_ms : %u\n", g_cfg.lock_settle_ms);
 
     console_putc('\n');
 }
