@@ -2,43 +2,44 @@
  * door_state_machine.cpp
  *
  * Project: Chicken Coop Controller
- * Purpose: Door motion state machine (internal)
+ * Purpose: Door motion state machine (simplified, safe)
  */
 
 #include "door_state_machine.h"
-#include "lock_state_machine.h"
 #include "led_state_machine.h"
 
 #include "door_hw.h"
+#include "door_lock.h"
 #include "config.h"
 
 /* --------------------------------------------------------------------------
  * Internal state
  * -------------------------------------------------------------------------- */
 
-static door_motion_t g_motion = DOOR_IDLE_UNKNOWN;
+static door_motion_t g_motion        = DOOR_IDLE_UNKNOWN;
 static dev_state_t   g_settled_state = DEV_STATE_UNKNOWN;
-static uint32_t      g_motion_t0_ms = 0;
+static uint32_t      g_motion_t0_ms  = 0;
+
+/* Optional delay before locking (settle time) */
+#define POSTCLOSE_DELAY_MS  250u
 
 /* --------------------------------------------------------------------------
  * Helpers
  * -------------------------------------------------------------------------- */
 
-static void update_led_for_motion(door_motion_t m)
+static void update_led(door_motion_t m)
 {
     switch (m) {
 
     case DOOR_IDLE_OPEN:
     case DOOR_IDLE_CLOSED:
-        led_state_machine_set(LED_OFF, LED_GREEN); /* color ignored */
+        led_state_machine_set(LED_OFF, LED_GREEN);
         break;
 
-    case DOOR_PREOPEN_UNLOCK:
     case DOOR_MOVING_OPEN:
         led_state_machine_set(LED_PULSE, LED_GREEN);
         break;
 
-    case DOOR_PRECLOSE_UNLOCK:
     case DOOR_MOVING_CLOSE:
         led_state_machine_set(LED_PULSE, LED_RED);
         break;
@@ -60,12 +61,25 @@ static void set_motion(door_motion_t m)
         return;
 
     g_motion = m;
-    update_led_for_motion(m);
+    update_led(m);
 }
 
 static void door_stop(void)
 {
     door_hw_stop();
+}
+
+static inline uint16_t door_settle_ms(void)
+{
+    /* Defensive clamp: settling is mechanical, not infinite */
+    uint16_t ms = g_cfg.door_settle_ms;
+
+    if (ms < 250)
+        ms = 250;      /* minimum sanity */
+    else if (ms > 5000)
+        ms = 5000;     /* gravity + chickens, not geology */
+
+    return ms;
 }
 
 /* --------------------------------------------------------------------------
@@ -74,10 +88,11 @@ static void door_stop(void)
 
 void door_sm_init(void)
 {
+    door_lock_init();
     door_stop();
 
     g_settled_state = DEV_STATE_UNKNOWN;
-    g_motion_t0_ms = 0;
+    g_motion_t0_ms  = 0;
 
     set_motion(DOOR_IDLE_UNKNOWN);
 }
@@ -88,59 +103,30 @@ void door_sm_request(dev_state_t state)
         return;
 
     /* Abort any active motion immediately */
-    switch (g_motion) {
-    case DOOR_MOVING_OPEN:
-    case DOOR_MOVING_CLOSE:
-        door_stop();
-        set_motion(DOOR_IDLE_UNKNOWN);
-        break;
-    default:
-        break;
-    }
+    door_stop();
 
-    g_motion_t0_ms = 0;
+    g_motion_t0_ms  = 0;
     g_settled_state = DEV_STATE_UNKNOWN;
 
+    /* ALWAYS unlock first (blocking, safe) */
+    door_lock_release();
+
     if (state == DEV_STATE_ON) {
-        /* OPEN request */
-        lock_sm_release();
-        set_motion(DOOR_PREOPEN_UNLOCK);
+        /* OPEN */
+        door_hw_set_open_dir();
+        door_hw_enable();
+        set_motion(DOOR_MOVING_OPEN);
     } else {
-        /* CLOSE request */
-        lock_sm_release();
-        set_motion(DOOR_PRECLOSE_UNLOCK);
+        /* CLOSE */
+        door_hw_set_close_dir();
+        door_hw_enable();
+        set_motion(DOOR_MOVING_CLOSE);
     }
 }
 
 void door_sm_tick(uint32_t now_ms)
 {
     switch (g_motion) {
-
-    /* --------------------------------------------------
-     * Waiting for unlock before opening
-     * -------------------------------------------------- */
-    case DOOR_PREOPEN_UNLOCK:
-        if (!lock_sm_busy()) {
-            door_hw_set_open_dir();
-            door_hw_enable();
-
-            g_motion_t0_ms = 0;
-            set_motion(DOOR_MOVING_OPEN);
-        }
-        break;
-
-    /* --------------------------------------------------
-     * Waiting for unlock before closing
-     * -------------------------------------------------- */
-    case DOOR_PRECLOSE_UNLOCK:
-        if (!lock_sm_busy()) {
-            door_hw_set_close_dir();
-            door_hw_enable();
-
-            g_motion_t0_ms = 0;
-            set_motion(DOOR_MOVING_CLOSE);
-        }
-        break;
 
     /* --------------------------------------------------
      * Door moving open
@@ -153,7 +139,7 @@ void door_sm_tick(uint32_t now_ms)
 
         if ((uint32_t)(now_ms - g_motion_t0_ms) >= g_cfg.door_travel_ms) {
             door_stop();
-            g_motion_t0_ms = 0;
+            g_motion_t0_ms  = 0;
             g_settled_state = DEV_STATE_ON;
             set_motion(DOOR_IDLE_OPEN);
         }
@@ -170,25 +156,33 @@ void door_sm_tick(uint32_t now_ms)
 
         if ((uint32_t)(now_ms - g_motion_t0_ms) >= g_cfg.door_travel_ms) {
             door_stop();
-            lock_sm_engage();
-
-            g_motion_t0_ms = 0;
+            g_motion_t0_ms = now_ms;
             set_motion(DOOR_POSTCLOSE_LOCK);
         }
         break;
 
     /* --------------------------------------------------
-     * Locking after close
+     * Post-close delay + lock (blocking)
      * -------------------------------------------------- */
-    case DOOR_POSTCLOSE_LOCK:
-        if (!lock_sm_busy()) {
-            g_settled_state = DEV_STATE_OFF;
-            set_motion(DOOR_IDLE_CLOSED);
-        }
-        break;
+     case DOOR_POSTCLOSE_LOCK:
+         if ((uint32_t)(now_ms - g_motion_t0_ms) < door_settle_ms())
+             break;
+
+         /*
+          * Blocking lock pulse:
+          * - bounded by lock driver
+          * - returns with power OFF
+          * - nothing else should happen during this window
+          */
+         door_lock_engage();
+
+         g_motion_t0_ms  = 0;
+         g_settled_state = DEV_STATE_OFF;
+         set_motion(DOOR_IDLE_CLOSED);
+         break;
 
     /* --------------------------------------------------
-     * Idle / unknown states
+     * Idle / unknown
      * -------------------------------------------------- */
     case DOOR_IDLE_OPEN:
     case DOOR_IDLE_CLOSED:

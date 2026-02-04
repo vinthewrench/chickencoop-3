@@ -51,17 +51,15 @@ SRCS := \
 	mini_printf.cpp \
 	devices.cpp \
 	door_device.cpp \
+	door_host.cpp \
 	door_state_machine.cpp \
 	foo_device.cpp \
 	led_device.cpp \
 	led_state_machine.cpp \
-	lock_state_machine.cpp \
-	lock_device.cpp \
-	lock_hw_host.cpp \
+	door_lock_host.cpp \
 	relay_device.cpp \
 	relays_host.cpp \
-	door_hw_host.cpp \
- 	console_io_host.cpp \
+	console_io_host.cpp \
 	config_sw_host.cpp \
 	config_host.cpp \
 	system_sleep_host.cpp \

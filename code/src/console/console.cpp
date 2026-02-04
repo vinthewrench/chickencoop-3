@@ -58,7 +58,7 @@ static int idx = 0;
 static uint32_t last_activity_sec = 0;
 
 // Timeout enable/disable flag
-static bool console_timeout_enabled = true;
+static bool console_timeout_enabled = false;
 
 // Forward declaration of local helpers
 static void strip_comment(char *line);
@@ -142,6 +142,9 @@ bool console_should_exit(void)
  */
 void console_poll(void)
 {
+    static bool esc_active = false;
+    static bool esc_csi    = false;
+
     if (want_exit)
         return;
 
@@ -159,6 +162,40 @@ void console_poll(void)
 
     // Any input resets timeout
     last_activity_sec = uptime_seconds();
+
+
+    // ------------------------------------------------------------
+    // Swallow ANSI escape sequences (arrow keys, etc.)
+    // ------------------------------------------------------------
+    if (esc_active) {
+
+        if (!esc_csi) {
+            // Expect '[' after ESC
+            if (c == '[') {
+                esc_csi = true;
+            } else {
+                // Not CSI, abort escape handling
+                esc_active = false;
+            }
+            return;
+        }
+
+        // We are inside ESC [
+        // Final byte is 0x40..0x7E
+        if (c >= 0x40 && c <= 0x7E) {
+            esc_active = false;
+            esc_csi    = false;
+        }
+
+        return; // swallow everything
+    }
+
+    if (c == 0x1B) { // ESC
+        esc_active = true;
+        esc_csi    = false;
+        return;
+    }
+
 
     // Enter / Newline
     if (c == '\n' || c == '\r') {

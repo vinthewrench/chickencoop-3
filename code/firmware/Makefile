@@ -73,8 +73,6 @@ SRCS := \
 	../src/devices/foo_device.cpp \
 	../src/devices/led_device.cpp \
 	../src/devices/led_state_machine.cpp \
-	../src/devices/lock_state_machine.cpp \
-	../src/devices/lock_device.cpp \
 	../src/devices/relay_device.cpp \
 	../src/resolve_when.cpp \
 	../src/console/console.cpp \

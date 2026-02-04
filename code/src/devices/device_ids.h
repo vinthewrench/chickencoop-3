@@ -14,7 +14,6 @@ typedef enum {
     DEVICE_ID_NONE   = 0x00,
 
     DEVICE_ID_DOOR   = 0x01,
-    DEVICE_ID_LOCK   = 0x02,
     DEVICE_ID_LED    = 0x03,
     DEVICE_ID_RELAY1 = 0x04,
     DEVICE_ID_RELAY2 = 0x05,

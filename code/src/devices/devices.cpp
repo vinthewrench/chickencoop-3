@@ -18,7 +18,6 @@
  * -------------------------------------------------------------------------- */
 
 extern const Device door_device;
-extern const Device lock_device;
 extern const Device led_device;
 extern const Device relay1_device;
 extern const Device relay2_device;
@@ -43,7 +42,6 @@ void device_init(void)
 
     /* Register devices by explicit ID */
     devices[DEVICE_ID_DOOR]   = &door_device;
-    devices[DEVICE_ID_LOCK]   = &lock_device;
     devices[DEVICE_ID_LED]    = &led_device;
     devices[DEVICE_ID_RELAY1] = &relay1_device;
     devices[DEVICE_ID_RELAY2] = &relay2_device;

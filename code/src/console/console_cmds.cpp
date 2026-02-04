@@ -54,7 +54,7 @@
 #include "config.h"
 #include "uptime.h"
 #include "scheduler.h"
-
+#include  "door_lock.h"
 #include "devices/devices.h"
 #include "devices/led_state_machine.h"
 #include "state_reducer.h"
@@ -281,19 +281,19 @@ static void when_print(const struct When *w)
     }
 
     case REF_SOLAR_STD_RISE:
-        mini_printf("Solar Sunrise %c%d", sign, mins);
+        mini_printf("Sunrise %c%d", sign, mins);
         return;
 
     case REF_SOLAR_STD_SET:
-        mini_printf("Solar Sunset %c%d", sign, mins);
+        mini_printf("Sunset %c%d", sign, mins);
         return;
 
     case REF_SOLAR_CIV_RISE:
-        mini_printf("Civil Dawn %c%d", sign, mins);
+        mini_printf("Dawn %c%d", sign, mins);
         return;
 
     case REF_SOLAR_CIV_SET:
-        mini_printf("Civil Dusk %c%d", sign, mins);
+        mini_printf("Dusk %c%d", sign, mins);
         return;
 
     default:
@@ -796,6 +796,28 @@ static void cmd_set(int argc, char **argv)
         return;
     }
 
+
+    /* --------------------------------------------------
+     * set door_settle_ms <ms>
+     * allow gravity + obstruction to clear
+     * -------------------------------------------------- */
+    if (!strcmp(argv[1], "door_settle_ms") && argc == 3) {
+        int v = atoi(argv[2]);
+
+        /* Hard safety bounds */
+        if (v < 50 || v > 5001) {
+            console_puts("ERROR\n");
+            return;
+        }
+
+        g_cfg.door_settle_ms = (uint16_t)v;
+        g_cfg_dirty = true;
+
+        console_puts("OK\n");
+        return;
+    }
+
+
     /* --------------------------------------------------
      * set door_travel_ms <ms>
      * Max ON time for door motor (failsafe bound)
@@ -973,32 +995,26 @@ static void cmd_door(int argc, char **argv)
 
 static void cmd_lock(int argc, char **argv)
 {
-    /* Map door → device door on|off */
-    char *dev_argv[3];
-    dev_argv[0] = (char *)"device";
-    dev_argv[1] = (char *)"lock";
-
-
     if (argc != 2) {
         console_puts("usage: lock engage|release\n");
         return;
     }
 
-    if (!strcmp(argv[1], "lock")) {
-        dev_argv[2] = (char *)"on";
-    }
-    else if (!strcmp(argv[1], "unlock")) {
-        dev_argv[2] = (char *)"off";
-    }
-    else {
-        console_puts("?\n");
+    if (!strcmp(argv[1], "engage")) {
+        console_puts("Locking...\n");
+        door_lock_engage();     /* blocking, safe */
+        console_puts("Lock engaged\n");
         return;
     }
 
-    /* Delegate to canonical implementation */
-    cmd_device(3, dev_argv);
+    if (!strcmp(argv[1], "release")) {
+        console_puts("Unlocking...\n");
+        door_lock_release();    /* blocking, safe */
+        console_puts("Lock released\n");
+        return;
+    }
 
-    console_puts("?\n");
+    console_puts("usage: lock engage|release\n");
 }
 
 static void cmd_led(int argc, char **argv)
@@ -1126,6 +1142,7 @@ static void cmd_config(int, char **)
     /* mechanical timing */
      mini_printf("door_travel_ms : %u\n", g_cfg.door_travel_ms);
      mini_printf("lock_pulse_ms  : %u\n", g_cfg.lock_pulse_ms);
+     mini_printf("door_settle_ms : %u\n", g_cfg.door_settle_ms);
 
     console_putc('\n');
 }
@@ -1221,8 +1238,7 @@ static void cmd_event(int argc, char **argv)
             }
         }
 
-        /* Print */
-        /* Print */
+         /* Print */
         for (size_t i = 0; i < rcount; i++) {
             const Event *ev = r[i].ev;
             uint16_t minute = r[i].minute;
@@ -1348,42 +1364,24 @@ static void cmd_event(int argc, char **argv)
             goto add_event;
         }
 
-        /* solar anchors */
-        if (argc == 7 && !strcmp(argv[4], "solar")) {
+        /* solar / civil anchors (user-facing) */
+        if (argc == 6) {
 
-            if (!strcmp(argv[5], "sunrise"))
+            if (!strcmp(argv[4], "sunrise"))
                 ev.when.ref = REF_SOLAR_STD_RISE;
-            else if (!strcmp(argv[5], "sunset"))
+            else if (!strcmp(argv[4], "sunset"))
                 ev.when.ref = REF_SOLAR_STD_SET;
-            else {
-                console_puts("ERROR SOLAR\n");
-                return;
-            }
-
-            int off;
-            if (!parse_signed_int(argv[6], &off)) {
-                console_puts("ERROR OFFSET\n");
-                return;
-            }
-
-            ev.when.offset_minutes = (int16_t)off;
-            goto add_event;
-        }
-
-        /* civil anchors */
-        if (argc == 7 && !strcmp(argv[4], "civil")) {
-
-            if (!strcmp(argv[5], "dawn"))
+            else if (!strcmp(argv[4], "dawn"))
                 ev.when.ref = REF_SOLAR_CIV_RISE;
-            else if (!strcmp(argv[5], "dusk"))
+            else if (!strcmp(argv[4], "dusk"))
                 ev.when.ref = REF_SOLAR_CIV_SET;
             else {
-                console_puts("ERROR CIVIL\n");
+                console_puts("ERROR WHEN\n");
                 return;
             }
 
             int off;
-            if (!parse_signed_int(argv[6], &off)) {
+            if (!parse_signed_int(argv[5], &off)) {
                 console_puts("ERROR OFFSET\n");
                 return;
             }
@@ -1641,10 +1639,10 @@ typedef struct {
       "event list\n" \
       "event add <device> <on|off> HH:MM\n" \
       "event add <device> <on|off> midnight HH:MM\n" \
-      "event add <device> <on|off> solar sunrise +/-MIN\n" \
-      "event add <device> <on|off> solar sunset  +/-MIN\n" \
-      "event add <device> <on|off> civil dawn    +/-MIN\n" \
-      "event add <device> <on|off> civil dusk    +/-MIN\n" \
+      "event add <device> <on|off> sunrise +/-MIN\n" \
+      "event add <device> <on|off> sunset  +/-MIN\n" \
+      "event add <device> <on|off> dawn    +/-MIN\n" \
+      "event add <device> <on|off> dusk    +/-MIN\n" \
       "event delete <refnum>\n" \
     ) \
     \

@@ -17,17 +17,21 @@
 #include "console/mini_printf.h"
 
 
-void lock_engage(void)
-{
-    mini_printf("[HOST] lock_engage()\n");
+void door_lock_init(void){
+    // NOP
 }
 
-void lock_release(void)
-{
-    mini_printf("[HOST] lock_release()\n");
+void door_lock_stop(void) {
+    mini_printf("[HOST] door_lock_stop()\n");
+
 }
 
-/* not used */
-void lock_tick(uint32_t now_ms){
-     (void)now_ms;
-};
+void door_lock_engage(void)
+{
+    mini_printf("[HOST] door_lock_engage()\n");
+}
+
+void door_lock_release(void)
+{
+    mini_printf("[HOST] door_lock_release()\n");
+}

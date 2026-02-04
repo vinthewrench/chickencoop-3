@@ -21,7 +21,7 @@
 
 /* Config identity */
 #define CONFIG_MAGIC   0x434F4F50UL  /* 'COOP' */
-#define CONFIG_VERSION 1
+#define CONFIG_VERSION 2
 
 struct config {
     /* Identity */
@@ -38,6 +38,8 @@ struct config {
     /* Mechanical timing (physical constants) */
     uint16_t door_travel_ms;    /* full open or close time */
     uint16_t lock_pulse_ms;     /* solenoid energize duration */
+    uint16_t door_settle_ms;        /* delay after close before locking */
+
 
     uint8_t _pad1[2];           /* align events */
 

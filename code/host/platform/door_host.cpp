@@ -7,15 +7,30 @@
  * Updated: 2026-01-01
  */
 
-#include "door.h"
+#include "door_hw.h"
 #include "console/mini_printf.h"
 
-void door_open(void)
+void door_hw_init(void)
 {
-    mini_printf("[HOST] door_open()\n");
- }
+    mini_printf("[HOST] door_hw_init()\n");
+}
 
-void door_close(void)
+void door_hw_set_open_dir(void)
 {
-    mini_printf("[HOST] door_close()\n");
+    mini_printf("[HOST] door_hw_set_open_dir()\n");
+}
+
+void door_hw_set_close_dir(void)
+{
+    mini_printf("[HOST] door_hw_set_close_dir()\n");
+}
+
+void door_hw_enable(void)
+{
+    mini_printf("[HOST] door_hw_enable()\n");
+}
+
+void door_hw_stop(void)
+{
+    mini_printf("[HOST] door_hw_stop()\n");
 }
