@@ -1328,104 +1328,116 @@ static void cmd_event(int argc, char **argv)
     }
 
     /* --------------------------------------------------------------------
-     * event add ...
-     * ------------------------------------------------------------------ */
-    if (!strcmp(argv[1], "add")) {
+      * event add ...
+      * ------------------------------------------------------------------ */
+     if (!strcmp(argv[1], "add")) {
 
-        Event ev;
-        memset(&ev, 0, sizeof(ev));
+         Event ev;
+         memset(&ev, 0, sizeof(ev));
 
-        if (argc < 5) {
-            console_puts("ERROR ARGS\n");
-            return;
-        }
+         if (argc < 5) {
+             console_puts("ERROR ARGS\n");
+             return;
+         }
 
-        if (!device_lookup_id(argv[2], &ev.device_id)) {
-            console_puts("ERROR DEVICE\n");
-            return;
-        }
+         /* --------------------------------------------------
+          * Device
+          * -------------------------------------------------- */
+         if (!device_lookup_id(argv[2], &ev.device_id)) {
+             console_puts("ERROR DEVICE\n");
+             return;
+         }
 
-        /* Device-defined state parsing */
-        dev_state_t st;
-        if (!device_parse_state_by_id(ev.device_id, argv[3], &st)) {
-            console_puts("ERROR STATE\n");
-            return;
-        }
+         /* --------------------------------------------------
+          * State
+          * -------------------------------------------------- */
+         dev_state_t st;
+         if (!device_parse_state_by_id(ev.device_id, argv[3], &st)) {
+             console_puts("ERROR STATE\n");
+             return;
+         }
 
-        if (st == DEV_STATE_ON)
-            ev.action = ACTION_ON;
-        else if (st == DEV_STATE_OFF)
-            ev.action = ACTION_OFF;
-        else {
-            console_puts("ERROR STATE\n");
-            return;
-        }
+         if (st == DEV_STATE_ON)
+             ev.action = ACTION_ON;
+         else if (st == DEV_STATE_OFF)
+             ev.action = ACTION_OFF;
+         else {
+             console_puts("ERROR STATE\n");
+             return;
+         }
 
-        /* implicit midnight: HH:MM */
-        if (argc == 5) {
-            int hh, mm;
-            if (!parse_time_hm(argv[4], &hh, &mm)) {
-                console_puts("ERROR TIME\n");
-                return;
-            }
-            ev.when.ref = REF_MIDNIGHT;
-            ev.when.offset_minutes = (int16_t)(hh * 60 + mm);
-            goto add_event;
-        }
+         /* --------------------------------------------------
+          * WHEN parsing
+          * -------------------------------------------------- */
 
-        /* explicit midnight */
-        if (argc == 6 && !strcmp(argv[4], "midnight")) {
-            int hh, mm;
-            if (!parse_time_hm(argv[5], &hh, &mm)) {
-                console_puts("ERROR TIME\n");
-                return;
-            }
-            ev.when.ref = REF_MIDNIGHT;
-            ev.when.offset_minutes = (int16_t)(hh * 60 + mm);
-            goto add_event;
-        }
+         /* implicit HH:MM */
+         if (argc == 5) {
+             int hh, mm;
+             if (parse_time_hm(argv[4], &hh, &mm)) {
+                 ev.when.ref = REF_MIDNIGHT;
+                 ev.when.offset_minutes = (int16_t)(hh * 60 + mm);
+                 goto add_event;
+             }
+         }
 
-        /* solar / civil anchors (user-facing) */
-        if (argc == 6) {
+         /* explicit midnight HH:MM */
+         if (argc == 6 && !strcmp(argv[4], "midnight")) {
+             int hh, mm;
+             if (!parse_time_hm(argv[5], &hh, &mm)) {
+                 console_puts("ERROR TIME\n");
+                 return;
+             }
+             ev.when.ref = REF_MIDNIGHT;
+             ev.when.offset_minutes = (int16_t)(hh * 60 + mm);
+             goto add_event;
+         }
 
-            if (!strcmp(argv[4], "sunrise"))
-                ev.when.ref = REF_SOLAR_STD_RISE;
-            else if (!strcmp(argv[4], "sunset"))
-                ev.when.ref = REF_SOLAR_STD_SET;
-            else if (!strcmp(argv[4], "dawn"))
-                ev.when.ref = REF_SOLAR_CIV_RISE;
-            else if (!strcmp(argv[4], "dusk"))
-                ev.when.ref = REF_SOLAR_CIV_SET;
-            else {
-                console_puts("ERROR WHEN\n");
-                return;
-            }
+         /* solar / civil anchors */
+         static const struct {
+             const char *name;
+             decltype(ev.when.ref) ref;
+         } when_keywords[] = {
+             { "sunrise", REF_SOLAR_STD_RISE },
+             { "sunset",  REF_SOLAR_STD_SET  },
+             { "dawn",    REF_SOLAR_CIV_RISE },
+             { "dusk",    REF_SOLAR_CIV_SET  },
+         };
 
-            int off;
-            if (!parse_signed_int(argv[5], &off)) {
-                console_puts("ERROR OFFSET\n");
-                return;
-            }
+         for (size_t i = 0; i < sizeof(when_keywords)/sizeof(when_keywords[0]); i++) {
+             if (!strcmp(argv[4], when_keywords[i].name)) {
 
-            ev.when.offset_minutes = (int16_t)off;
-            goto add_event;
-        }
+                 ev.when.ref = when_keywords[i].ref;
+                 ev.when.offset_minutes = 0;
 
-        console_puts("ERROR FORMAT\n");
-        return;
+                 /* optional offset */
+                 if (argc == 6) {
+                     int off;
+                     if (!parse_signed_int(argv[5], &off)) {
+                         console_puts("ERROR OFFSET\n");
+                         return;
+                     }
+                     ev.when.offset_minutes = (int16_t)off;
+                 }
 
-add_event:
-        ev.refnum = 0;
+                 goto add_event;
+             }
+         }
 
-        if (!config_events_add(&ev)) {
-            console_puts("ERROR\n");
-            return;
-        }
+         console_puts("ERROR FORMAT\n");
+         return;
 
-        g_cfg_dirty = true;
-        console_puts("OK (event added, not saved)\n");
-        return;
-    }
+     add_event:
+         ev.refnum = 0;
+
+         if (!config_events_add(&ev)) {
+             console_puts("ERROR\n");
+             return;
+         }
+
+         g_cfg_dirty = true;
+         console_puts("OK (event added, not saved)\n");
+         return;
+     }
 
     console_puts("?\n");
 }
