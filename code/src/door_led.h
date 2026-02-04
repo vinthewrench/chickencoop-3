@@ -58,3 +58,10 @@ void door_led_green_pwm(uint8_t duty);
  *  - Does not block or delay
  */
 void door_led_red_pwm(uint8_t duty);
+
+
+/* --------------------------------------------------------------------------
+ * PWM tick (call at fixed rate, e.g. 1 kHz)
+ * -------------------------------------------------------------------------- */
+
+void door_led_tick(void);

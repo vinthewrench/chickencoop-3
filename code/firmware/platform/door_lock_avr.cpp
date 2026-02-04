@@ -1,5 +1,5 @@
 /*
- * lock_hw_avr.cpp
+ * door_lock_avr.cpp
  *
  * Project: Chicken Coop Controller
  * Purpose: Lock actuator hardware driver (AVR)
@@ -14,24 +14,20 @@
  *  - NO state machine
  *  - All sequencing handled by lock_state_machine
  *
- * Hardware (LOCKED, V3.0):
+ * Hardware (LOCKED):
  *  - VNH7100BASTR H-bridge
- *  - LOCK_INA -> PF0
- *  - LOCK_INB -> PF1
- *  - LOCK_EN  -> PF4
+ *  - LOCK_INA -> PA2
+ *  - LOCK_INB -> PA3
+ *  - LOCK_EN  -> PA4
  *
- * Updated: 2026-01-07
+ * Updated: 2026-02-03
  */
 
 #include <avr/io.h>
 #include <stdint.h>
 
 #include "lock_hw.h"
-
-/* --------------------------------------------------------------------------
- * Pin mapping
- * -------------------------------------------------------------------------- */
- #include "gpio_avr.h"
+#include "gpio_avr.h"
 
 /* --------------------------------------------------------------------------
  * Helpers (masked writes only)
@@ -39,12 +35,12 @@
 
 static inline void set_bits(uint8_t mask)
 {
-    PORTF |= mask;
+    PORTA |= mask;
 }
 
 static inline void clear_bits(uint8_t mask)
 {
-    PORTF &= (uint8_t)~mask;
+    PORTA &= (uint8_t)~mask;
 }
 
 /* --------------------------------------------------------------------------
@@ -54,7 +50,9 @@ static inline void clear_bits(uint8_t mask)
 void lock_hw_init(void)
 {
     /* Configure control pins as outputs */
-    DDRF |= (LOCK_INA_BIT | LOCK_INB_BIT | LOCK_EN_BIT);
+    DDRA |= (1u << LOCK_INA_BIT) |
+            (1u << LOCK_INB_BIT) |
+            (1u << LOCK_EN_BIT);
 
     /* Safe default */
     lock_hw_stop();
@@ -63,26 +61,27 @@ void lock_hw_init(void)
 void lock_hw_stop(void)
 {
     /* Disable power first, then neutralize direction */
-    clear_bits(LOCK_EN_BIT);
-    clear_bits(LOCK_INA_BIT | LOCK_INB_BIT);
+    clear_bits(1u << LOCK_EN_BIT);
+    clear_bits((1u << LOCK_INA_BIT) |
+               (1u << LOCK_INB_BIT));
 }
 
 void lock_hw_engage(void)
 {
-    /* INA=1, INB=0 */
-    clear_bits(LOCK_INB_BIT);
-    set_bits(LOCK_INA_BIT);
+    /* INA = 1, INB = 0 */
+    clear_bits(1u << LOCK_INB_BIT);
+    set_bits(1u << LOCK_INA_BIT);
 
-    /* EN=1 */
-    set_bits(LOCK_EN_BIT);
+    /* EN = 1 */
+    set_bits(1u << LOCK_EN_BIT);
 }
 
 void lock_hw_release(void)
 {
-    /* INA=0, INB=1 */
-    clear_bits(LOCK_INA_BIT);
-    set_bits(LOCK_INB_BIT);
+    /* INA = 0, INB = 1 */
+    clear_bits(1u << LOCK_INA_BIT);
+    set_bits(1u << LOCK_INB_BIT);
 
-    /* EN=1 */
-    set_bits(LOCK_EN_BIT);
+    /* EN = 1 */
+    set_bits(1u << LOCK_EN_BIT);
 }

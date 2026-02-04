@@ -14,7 +14,10 @@ clean:
 	$(MAKE) -C host clean
 	$(MAKE) -C firmware clean
 
-.PHONY: size
+.PHONY: size isp
 
 size:
 	$(MAKE) -C firmware size
+
+isp:
+	$(MAKE) -C firmware isp

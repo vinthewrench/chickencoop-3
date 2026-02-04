@@ -2,11 +2,11 @@
 # Project
 # ------------------------------------------------------------
 
-PROJECT_VERSION := "2.7.0"
+PROJECT_VERSION := "2.8.0"
 
 
 PROJECT := coop_firmware
-MCU     := atmega32u4
+MCU     := atmega1284p
 F_CPU   := 8000000UL
 
 # ------------------------------------------------------------
@@ -23,7 +23,7 @@ AVRDUDE := avrdude
 # ------------------------------------------------------------
 PROGRAMMER  := atmelice_isp
 PORT        := usb
-AVRDUDE_MCU := m32u4
+AVRDUDE_MCU := m1284p
 
 # ------------------------------------------------------------
 # Directories
@@ -140,6 +140,10 @@ $(PROJECT).hex: $(PROJECT).elf
 $(PROJECT).lst: $(PROJECT).elf
 	$(OBJDUMP) -h -S "$<" > "$@"
 
+isp:
+	$(AVRDUDE) -c $(PROGRAMMER) -P $(PORT) -p $(AVRDUDE_MCU) \
+	-B 100  -v
+
 # ------------------------------------------------------------
 # Flashing (preserve EEPROM, no chip erase)
 # Use for iterative bring-up and debugging
@@ -198,8 +202,8 @@ check-fuses:
 #
 # VERIFIED WORKING FUSE VALUES (READ FROM SILICON):
 #   lfuse = 0xE2
-#   hfuse = 0x99   # JTAG ENABLED
-#   efuse = 0xFB
+#   hfuse = 0xD9   # JTAG disabled
+#   efuse = 0xFB.  # Brown-Out Detect disabled (ATmega1284P)
 #
 # POLICY:
 #   - Fuse values are LOCKED.
@@ -227,4 +231,4 @@ size: $(PROJECT).elf
 clean:
 	rm -rf $(OBJ_DIR) *.elf *.hex *.lst *.map
 
-.PHONY: all clean flash flash-all check-fuses set-fuses size
+.PHONY: all clean flash flash-all check-fuses set-fuses size isp

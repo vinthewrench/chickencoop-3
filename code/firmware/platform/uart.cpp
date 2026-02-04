@@ -2,7 +2,7 @@
  * uart.cpp
  *
  * Project: Chicken Coop Controller
- * Purpose: UART driver (USART1)
+ * Purpose: UART driver (USART0)
  *
  * Configuration:
  *   F_CPU = 8 MHz (internal RC)
@@ -19,39 +19,38 @@
 
 void uart_init(void)
 {
-    /* Normal speed (U2X1 = 0) */
-    UCSR1A = 0;
+    /* Normal speed (U2X0 = 0) */
+    UCSR0A = 0;
 
     /* Set baud rate */
-    UBRR1H = (uint8_t)(UBRR_VALUE >> 8);
-    UBRR1L = (uint8_t)(UBRR_VALUE & 0xFF);
+    UBRR0H = (uint8_t)(UBRR_VALUE >> 8);
+    UBRR0L = (uint8_t)(UBRR_VALUE & 0xFF);
 
     /* Enable RX and TX */
-    UCSR1B = (1 << RXEN1) | (1 << TXEN1);
+    UCSR0B = (1 << RXEN0) | (1 << TXEN0);
 
     /* 8 data bits, no parity, 1 stop bit */
-    UCSR1C = (1 << UCSZ11) | (1 << UCSZ10);
+    UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
 }
 
 int uart_getc(void)
 {
-    if (!(UCSR1A & (1 << RXC1)))
+    if (!(UCSR0A & (1 << RXC0)))
         return -1;
 
-    return UDR1;
+    return UDR0;
 }
 
 void uart_putc(char c)
 {
-    /* Optional CRLF normalization */
     if (c == '\n') {
-        while (!(UCSR1A & (1 << UDRE1)))
+        while (!(UCSR0A & (1 << UDRE0)))
             ;
-        UDR1 = '\r';
+        UDR0 = '\r';
     }
 
-    while (!(UCSR1A & (1 << UDRE1)))
+    while (!(UCSR0A & (1 << UDRE0)))
         ;
 
-    UDR1 = c;
+    UDR0 = c;
 }

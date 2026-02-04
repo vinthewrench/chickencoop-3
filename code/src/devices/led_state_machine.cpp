@@ -5,8 +5,8 @@
 #include "led_state_machine.h"
 #include "door_led.h"
 
-#define BLINK_PERIOD_MS   500u
-#define PULSE_PERIOD_MS  3000u   /* full breathe cycle */
+#define BLINK_PERIOD_MS   250u
+#define PULSE_PERIOD_MS  1200u   /* full breathe cycle */
 
 /* --------------------------------------------------------------------------
  * Internal state
@@ -75,8 +75,21 @@ bool led_state_machine_is_on(void)
     return g_led_on;
 }
 
+static void door_led_tick_if_due(uint32_t now_ms)
+{
+    static uint32_t last_ms = 0;
+
+    if ((uint32_t)(now_ms - last_ms) >= 1) {
+        last_ms = now_ms;
+        door_led_tick();
+    }
+}
+
 void led_state_machine_tick(uint32_t now_ms)
 {
+
+    door_led_tick_if_due(now_ms);
+
     switch (g_mode) {
 
     case LED_OFF:

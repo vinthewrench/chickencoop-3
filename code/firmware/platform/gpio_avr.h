@@ -38,9 +38,8 @@
  * NOTE:
  *  - Do NOT change these names unless the hardware wiring changes.
  * -------------------------------------------------------------------------- */
-#define LED_IN1   PB5   /* PHYSICAL LED: RED   */
-#define LED_IN2   PB6   /* PHYSICAL LED: GREEN */
-
+ #define LED_IN1_BIT   PA1   /* RED   */
+ #define LED_IN2_BIT   PA0   /* GREEN */
 
 /* --------------------------------------------------------------------------
  * Door Motor H-Bridge Control (VNH7100BASTR)
@@ -62,17 +61,13 @@
  *  - DOOR_EN MUST be driven LOW at boot.
  *  - INA/INB MUST be driven LOW at boot.
  *
- * JTAG NOTE:
- *  - PF4–PF7 are JTAG pins when JTAG is enabled by fuse.
- *  - Firmware MUST disable JTAG at runtime before using these pins.
  * -------------------------------------------------------------------------- */
 /* DOOR_INA -> PF5 (physical pin 38) */
 /* DOOR_INB -> PF6 (physical pin 37) */
 /* DOOR_EN  -> PF7 (physical pin 36) */
-#define DOOR_INA_BIT   (1u << PF5)
-#define DOOR_INB_BIT   (1u << PF6)
-#define DOOR_EN_BIT    (1u << PF7)
-
+#define DOOR_INA_BIT   PA5
+#define DOOR_INB_BIT   PA6
+#define DOOR_EN_BIT    PA7
 
 /* --------------------------------------------------------------------------
  * Door Lock Actuator H-Bridge (VNH7100BASTR)
@@ -97,10 +92,9 @@
 /* LOCK_INA -> PF0 */
 /* LOCK_INB -> PF1 */
 /* LOCK_EN  -> PF4 */
-#define LOCK_INA_BIT   (1u << PF0)
-#define LOCK_INB_BIT   (1u << PF1)
-#define LOCK_EN_BIT    (1u << PF4)
-
+#define LOCK_INA_BIT   PA2
+#define LOCK_INB_BIT   PA3
+#define LOCK_EN_BIT    PA4
 
 /* --------------------------------------------------------------------------
  * Latching Relay Outputs
@@ -147,7 +141,6 @@
  * --------------------------------------------------------------------------
  *
  * coop_gpio_init():
- *  - Disables JTAG at runtime so PF4–PF7 become usable GPIO
  *  - Configures all actuator-related pins as outputs
  *  - Forces a known-safe OFF state on all drivers
  *

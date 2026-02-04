@@ -69,3 +69,7 @@ void door_led_red_pwm(uint8_t duty)
 
  //   printf("[LED] RED duty=%u\n", duty);
 }
+
+void door_led_tick(void) {
+    // NOP
+}
