@@ -65,7 +65,7 @@ bool rtc_time_is_set(void);
 void rtc_get_time(int *y, int *mo, int *d,
                   int *h, int *m, int *s);
 
-void rtc_set_time(int y, int mo, int d,
+bool rtc_set_time(int y, int mo, int d,
                   int h, int m, int s);
 
 /* --------------------------------------------------------------------------

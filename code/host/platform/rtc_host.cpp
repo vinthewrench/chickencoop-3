@@ -77,7 +77,7 @@ void rtc_get_time(int *year,
     *second = g_second;
 }
 
-void rtc_set_time(int y,int mo,int d,int h,int m,int s)
+bool rtc_set_time(int y,int mo,int d,int h,int m,int s)
 {
     /* Override RTC time (locks host sync) */
     g_year   = y;
@@ -89,6 +89,7 @@ void rtc_set_time(int y,int mo,int d,int h,int m,int s)
 
     g_rtc_manual = true;
     g_rtc_valid  = true;
+    return true;
 }
 
 bool rtc_time_is_set(void)

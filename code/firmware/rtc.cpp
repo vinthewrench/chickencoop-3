@@ -164,40 +164,70 @@ void rtc_get_time(int *y, int *mo, int *d,
     if (y)  *y  = 2000 + bcd_to_bin(buf[6]);
 }
 
-void rtc_set_time(int y, int mo, int d,
+
+bool rtc_set_time(int y, int mo, int d,
                   int h, int m, int s)
 {
     uint8_t c1;
     uint8_t buf[7];
+    uint8_t sec1, sec2;
 
-    /* Stop oscillator before writing time (PCF8523 requirement). */
-    if (!i2c_read(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1)) {
-        return;
-    }
+    /* 1. Read CTRL1 and assert STOP (preserve CL bits) */
+    if (!i2c_read(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1))
+        return false;
 
     c1 |= CTRL1_STOP_BIT;
-    (void)i2c_write(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1);
+    if (!i2c_write(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1))
+        return false;
 
-    /* Ensure crystal load capacitance is set (defensive). */
-    c1 &= (uint8_t)~CTRL1_CL_MASK;
-    c1 |= CTRL1_CL_12P5PF;
+    /* 2. Confirm STOP latched */
+    uint8_t attempts = 20;
+    do {
+        if (!i2c_read(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1))
+            return false;
+        if (c1 & CTRL1_STOP_BIT)
+            break;
+    } while (--attempts);
 
-    /* Prepare time with OS flag cleared (Seconds[7]=0). */
-    buf[0] = (uint8_t)(bin_to_bcd((uint8_t)s)  & 0x7F);
-    buf[1] = (uint8_t)(bin_to_bcd((uint8_t)m)  & 0x7F);
-    buf[2] = (uint8_t)(bin_to_bcd((uint8_t)h)  & 0x3F);
-    buf[3] = (uint8_t)(bin_to_bcd((uint8_t)d)  & 0x3F);
-    buf[4] = 0; /* weekday not used */
-    buf[5] = (uint8_t)(bin_to_bcd((uint8_t)mo) & 0x1F);
-    buf[6] = (uint8_t)bin_to_bcd((uint8_t)(y % 100));
+    if (attempts == 0)
+        return false;
 
-    (void)i2c_write(PCF8523_ADDR7, REG_SECONDS, buf, (uint8_t)sizeof(buf));
+    /* 3. Verify seconds frozen */
+    if (!i2c_read(PCF8523_ADDR7, REG_SECONDS, &sec1, 1))
+        return false;
+    if (!i2c_read(PCF8523_ADDR7, REG_SECONDS, &sec2, 1))
+        return false;
+    if (sec1 != sec2)
+        return false;
 
-    /* Restart oscillator (and keep CL set). */
+    /* 4. Write time (OS flag cleared) */
+    buf[0] = bin_to_bcd((uint8_t)s) & 0x7F;
+    buf[1] = bin_to_bcd((uint8_t)m) & 0x7F;
+    buf[2] = bin_to_bcd((uint8_t)h) & 0x3F;
+    buf[3] = bin_to_bcd((uint8_t)d) & 0x3F;
+    buf[4] = 0;
+    buf[5] = bin_to_bcd((uint8_t)mo) & 0x1F;
+    buf[6] = bin_to_bcd((uint8_t)(y % 100));
+
+    if (!i2c_write(PCF8523_ADDR7, REG_SECONDS, buf, sizeof(buf)))
+        return false;
+
+    /* 5. Restart oscillator */
     c1 &= (uint8_t)~CTRL1_STOP_BIT;
-    (void)i2c_write(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1);
-}
+    if (!i2c_write(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1))
+        return false;
 
+    /* 6. Confirm restart */
+    attempts = 20;
+    do {
+        if (!i2c_read(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1))
+            return false;
+        if ((c1 & CTRL1_STOP_BIT) == 0)
+            break;
+    } while (--attempts);
+
+    return true;
+}
 /* --------------------------------------------------------------------------
  * Alarm API
  * -------------------------------------------------------------------------- */

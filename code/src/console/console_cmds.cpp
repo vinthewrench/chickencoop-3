@@ -70,12 +70,6 @@ extern bool want_exit;
 static bool g_cfg_loaded = false;
 static bool g_cfg_dirty = false;
 
-static int g_date_y = 0, g_date_mo = 0, g_date_d = 0;
-static int g_time_h = 0, g_time_m = 0, g_time_s = 0;
-static bool g_have_date = false;
-static bool g_have_time = false;
-static uint32_t g_time_set_uptime_s = 0;
-
 
 /* Command handler forward declarations */
 static void console_help(int argc, char **argv);
@@ -117,14 +111,6 @@ static void ensure_cfg_loaded(void)
 
     config_load(&g_cfg);
     g_cfg_loaded = true;
-
-    // Seed shadow date/time from RTC if it is already valid.
-    if (rtc_time_is_set()) {
-        rtc_get_time(&g_date_y, &g_date_mo, &g_date_d, &g_time_h, &g_time_m, &g_time_s);
-        g_have_date = true;
-        g_have_time = true;
-        g_time_set_uptime_s = uptime_seconds();
-    }
 }
 
 
@@ -147,20 +133,6 @@ static int days_in_month(int y, int mo)
     if (mo < 1 || mo > 12) return 31;
     if (mo == 2 && is_leap_year(y)) return 29;
     return dpm[mo - 1];
-}
-
-static void advance_one_day(int *y, int *mo, int *d)
-{
-    int dim = days_in_month(*y, *mo);
-    (*d)++;
-    if (*d <= dim) return;
-
-    *d = 1;
-    (*mo)++;
-    if (*mo <= 12) return;
-
-    *mo = 1;
-    (*y)++;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -327,19 +299,26 @@ static bool compute_today_solar(struct solar_times *out)
     if (!out)
         return false;
 
+    int y, mo, d, h;
+
+    /* RTC is the sole authority */
+    if (!rtc_time_is_set())
+        return false;
+
+    rtc_get_time(&y, &mo, &d, &h, NULL, NULL);
+
     double lat = (double)g_cfg.latitude_e4 / 10000.0;
     double lon = (double)g_cfg.longitude_e4 / 10000.0;
 
     int tz = g_cfg.tz;
-    if (g_cfg.honor_dst &&
-        is_us_dst(g_date_y, g_date_mo, g_date_d, g_time_h)) {
+    if (g_cfg.honor_dst && is_us_dst(y, mo, d, h)) {
         tz += 1;
     }
 
     return solar_compute(
-        g_date_y,
-        g_date_mo,
-        g_date_d,
+        y,
+        mo,
+        d,
         lat,
         lon,
         (int8_t)tz,
@@ -366,39 +345,6 @@ static void cmd_time(int, char **)
 {
     int y, mo, d, h, m, s;
 
-    /* If time is staged, show staged time advancing */
-    if (g_have_date && g_have_time) {
-
-        y = g_date_y;
-        mo = g_date_mo;
-        d = g_date_d;
-        h = g_time_h;
-        m = g_time_m;
-        s = g_time_s;
-
-        uint32_t now_s = uptime_seconds();
-        uint32_t delta_s = now_s - g_time_set_uptime_s;
-
-        /* Add elapsed seconds (same logic as save) */
-        s += (int)(delta_s % 60);
-        delta_s /= 60;
-        m += (int)(delta_s % 60);
-        delta_s /= 60;
-        h += (int)(delta_s % 24);
-        delta_s /= 24;
-
-        while (s >= 60) { s -= 60; m++; }
-        while (m >= 60) { m -= 60; h++; }
-        while (h >= 24) { h -= 24; delta_s++; }
-
-        while (delta_s--) {
-            advance_one_day(&y, &mo, &d);
-        }
-
-        print_datetime_ampm(y, mo, d, h, m, s);
-        return;
-    }
-
     /* Otherwise fall back to RTC */
     if (!rtc_time_is_set()) {
         console_puts("TIME: NOT SET\n");
@@ -418,31 +364,17 @@ static void cmd_solar(int argc, char **argv)
 
     ensure_cfg_loaded();
 
-    int y, mo, d, h, m, s;
-    int ry, rmo, rd;   /* throwaway RTC date */
-
     if (!rtc_time_is_set()) {
         console_puts("TIME: NOT SET\n");
         return;
     }
 
-    if (g_have_date) {
-        /* Console shadow date is authoritative */
-        y  = g_date_y;
-        mo = g_date_mo;
-        d  = g_date_d;
-
-        /* rtc_get_time requires non-NULL pointers */
-        rtc_get_time(&ry, &rmo, &rd, &h, &m, &s);
-    } else {
-        rtc_get_time(&y, &mo, &d, &h, &m, &s);
-    }
-
+    int y, mo, d, h;
+    rtc_get_time(&y, &mo, &d, &h, NULL, NULL);
 
     int effective_tz = g_cfg.tz;
     if (g_cfg.honor_dst && is_us_dst(y, mo, d, h))
         effective_tz += 1;
-
 
     float lat = g_cfg.latitude_e4 * 1e-4f;
     float lon = g_cfg.longitude_e4 * 1e-4f;
@@ -470,9 +402,7 @@ static void cmd_solar(int argc, char **argv)
     console_puts("    ");
     print_hhmm(sol.sunset_civ);
     console_putc('\n');
-
 }
-
 
 static void cmd_timeout(int argc, char **argv)
 {
@@ -511,14 +441,7 @@ static void cmd_schedule(int argc, char **argv)
         return;
     }
 
-    if (g_have_date) {
-        y  = g_date_y;
-        mo = g_date_mo;
-        d  = g_date_d;
-        rtc_get_time(NULL, NULL, NULL, &h, &m, &s);
-    } else {
-        rtc_get_time(&y, &mo, &d, &h, &m, &s);
-    }
+    rtc_get_time(&y, &mo, &d, &h, &m, &s);
 
     /* ----- Header ----- */
     mini_printf("Today: %04d-%02d-%02d\n\n", y, mo, d);
@@ -631,6 +554,7 @@ static void cmd_schedule(int argc, char **argv)
 
 
 // src/console/console_cmds.cpp
+// src/console/console_cmds.cpp
 
 static void cmd_set(int argc, char **argv)
 {
@@ -643,35 +567,43 @@ static void cmd_set(int argc, char **argv)
 
     /* --------------------------------------------------
      * set date YYYY-MM-DD
-     * Changes calendar day → solar must be recomputed
+     * Commits immediately to RTC using existing RTC time
      * -------------------------------------------------- */
     if (!strcmp(argv[1], "date") && argc == 3) {
         int yy, mm, dd;
+        int h, m, s;
+
         if (!parse_date_ymd(argv[2], &yy, &mm, &dd)) {
             console_puts("ERROR\n");
             return;
         }
 
-        g_date_y = yy;
-        g_date_mo = mm;
-        g_date_d  = dd;
+        /* RTC must already have a valid time */
+        if (!rtc_time_is_set()) {
+            console_puts("ERROR: RTC TIME NOT SET\n");
+            return;
+        }
 
-        g_have_date = true;
-        g_cfg_dirty = true;
+        /* Preserve existing RTC time-of-day */
+        rtc_get_time(NULL, NULL, NULL, &h, &m, &s);
 
-        /* Date change invalidates solar cache */
+        if (!rtc_set_time(yy, mm, dd, h, m, s)) {
+            console_puts("ERROR: RTC SET FAILED\n");
+            return;
+        }
+
         scheduler_invalidate_solar();
-
         console_puts("OK\n");
         return;
     }
 
     /* --------------------------------------------------
      * set time HH:MM[:SS]
-     * Time alone does NOT affect solar for the day
+     * Commits immediately to RTC using existing RTC date
      * -------------------------------------------------- */
     if (!strcmp(argv[1], "time") && argc == 3) {
         int hh = 0, mi = 0, ss = 0;
+        int y, mo, d;
 
         if (parse_time_hms(argv[2], &hh, &mi, &ss)) {
             /* HH:MM:SS */
@@ -682,15 +614,20 @@ static void cmd_set(int argc, char **argv)
             return;
         }
 
-        g_time_h = hh;
-        g_time_m = mi;
-        g_time_s = ss;
+        if (!rtc_time_is_set()) {
+            console_puts("ERROR: RTC DATE NOT SET\n");
+            return;
+        }
 
-        g_have_time = true;
-        g_time_set_uptime_s = uptime_seconds();
-        g_cfg_dirty = true;
+        /* Preserve existing RTC date */
+        rtc_get_time(&y, &mo, &d, NULL, NULL, NULL);
 
-        /* Time change alone does NOT invalidate solar */
+        if (!rtc_set_time(y, mo, d, hh, mi, ss)) {
+            console_puts("ERROR: RTC SET FAILED\n");
+            return;
+        }
+
+        /* Time change does NOT invalidate solar */
         console_puts("OK\n");
         return;
     }
@@ -707,10 +644,7 @@ static void cmd_set(int argc, char **argv)
 
         g_cfg.latitude_e4 = (int32_t)(v * 10000.0f);
         g_cfg_dirty = true;
-
-        /* Location change invalidates solar */
         scheduler_invalidate_solar();
-
         console_puts("OK\n");
         return;
     }
@@ -727,9 +661,7 @@ static void cmd_set(int argc, char **argv)
 
         g_cfg.longitude_e4 = (int32_t)(v * 10000.0f);
         g_cfg_dirty = true;
-
         scheduler_invalidate_solar();
-
         console_puts("OK\n");
         return;
     }
@@ -746,10 +678,7 @@ static void cmd_set(int argc, char **argv)
 
         g_cfg.tz = v;
         g_cfg_dirty = true;
-
-        /* TZ affects solar resolution */
         scheduler_invalidate_solar();
-
         console_puts("OK\n");
         return;
     }
@@ -758,106 +687,72 @@ static void cmd_set(int argc, char **argv)
      * set dst on|off
      * -------------------------------------------------- */
     if (!strcmp(argv[1], "dst") && argc == 3) {
-        if (!strcmp(argv[2], "on")) {
+        if (!strcmp(argv[2], "on"))
             g_cfg.honor_dst = true;
-        } else if (!strcmp(argv[2], "off")) {
+        else if (!strcmp(argv[2], "off"))
             g_cfg.honor_dst = false;
-        } else {
+        else {
             console_puts("ERROR\n");
             return;
         }
 
         g_cfg_dirty = true;
-
-        /* DST policy affects solar */
         scheduler_invalidate_solar();
-
         console_puts("OK\n");
         return;
     }
 
     /* --------------------------------------------------
-     * set lock_pulse_ms <ms>
-     * Max ON time for lock solenoid (safety critical)
+     * Mechanical timing parameters (unchanged)
      * -------------------------------------------------- */
+
     if (!strcmp(argv[1], "lock_pulse_ms") && argc == 3) {
         int v = atoi(argv[2]);
-
-        /* Hard safety bounds */
         if (v < 50 || v > 5001) {
             console_puts("ERROR\n");
             return;
         }
-
         g_cfg.lock_pulse_ms = (uint16_t)v;
         g_cfg_dirty = true;
-
         console_puts("OK\n");
         return;
     }
 
-
-    /* --------------------------------------------------
-     * set door_settle_ms <ms>
-     * allow gravity + obstruction to clear
-     * -------------------------------------------------- */
     if (!strcmp(argv[1], "door_settle_ms") && argc == 3) {
         int v = atoi(argv[2]);
-
-        /* Hard safety bounds */
         if (v < 50 || v > 5001) {
             console_puts("ERROR\n");
             return;
         }
-
         g_cfg.door_settle_ms = (uint16_t)v;
         g_cfg_dirty = true;
-
         console_puts("OK\n");
         return;
     }
 
-    /* --------------------------------------------------
-     * set lock_settle_ms <ms>
-     *  time after unlock before motion
-     * -------------------------------------------------- */
     if (!strcmp(argv[1], "lock_settle_ms") && argc == 3) {
         int v = atoi(argv[2]);
-
-        /* Hard safety bounds */
         if (v > 2001) {
             console_puts("ERROR\n");
             return;
         }
-
         g_cfg.lock_settle_ms = (uint16_t)v;
         g_cfg_dirty = true;
-
         console_puts("OK\n");
         return;
     }
 
-
-    /* --------------------------------------------------
-     * set door_travel_ms <ms>
-     * Max ON time for door motor (failsafe bound)
-     * -------------------------------------------------- */
     if (!strcmp(argv[1], "door_travel_ms") && argc == 3) {
         int v = atoi(argv[2]);
-
-        /* Conservative bounds – adjust if needed */
         if (v < 1000 || v > 30000) {
             console_puts("ERROR\n");
             return;
         }
-
         g_cfg.door_travel_ms = (uint16_t)v;
         g_cfg_dirty = true;
-
         console_puts("OK\n");
         return;
     }
-
 
     console_puts("?\n");
 }
@@ -930,56 +825,9 @@ static void cmd_set(int argc, char **argv)
 
      ensure_cfg_loaded();
 
-     if (!g_have_date || !g_have_time) {
-         console_puts("ERROR: DATE/TIME NOT SET\n");
-         return;
-     }
-
-     uint32_t now_s   = uptime_seconds();
-     uint32_t delta_s = now_s - g_time_set_uptime_s;
-
-     int y = g_date_y;
-     int mo = g_date_mo;
-     int d = g_date_d;
-     int h = g_time_h;
-     int m = g_time_m;
-     int s = g_time_s;
-
-     /* Apply elapsed time */
-     s += (int)(delta_s % 60);
-     delta_s /= 60;
-     m += (int)(delta_s % 60);
-     delta_s /= 60;
-     h += (int)(delta_s % 24);
-     delta_s /= 24;
-
-     while (s >= 60) { s -= 60; m++; }
-     while (m >= 60) { m -= 60; h++; }
-     while (h >= 24) { h -= 24; delta_s++; }
-
-     while (delta_s--) {
-         advance_one_day(&y, &mo, &d);
-     }
-
-     /* Commit RTC */
-     rtc_set_time(y, mo, d, h, m, s);
-
-     /* Commit config */
      config_save(&g_cfg);
+
      g_cfg_dirty = false;
-
-     /* Update shadow */
-     g_date_y = y;
-     g_date_mo = mo;
-     g_date_d = d;
-     g_time_h = h;
-     g_time_m = m;
-     g_time_s = s;
-     g_time_set_uptime_s = now_s;
-
-     /* RTC commit changes effective solar day */
-     scheduler_invalidate_solar();
-
      console_puts("OK\n");
  }
 
@@ -1088,68 +936,10 @@ static void cmd_config(int, char **)
 {
     ensure_cfg_loaded();
 
-#ifdef HOST_BUILD
-    /*
-     * Host initialization only:
-     * If no staged date/time exists, seed shadow from RTC once.
-     * Never overwrite staged intent.
-     */
-    if (rtc_time_is_set() && (!g_have_date || !g_have_time)) {
-        rtc_get_time(&g_date_y, &g_date_mo, &g_date_d,
-                     &g_time_h, &g_time_m, &g_time_s);
-        g_have_date = true;
-        g_have_time = true;
-        g_time_set_uptime_s = uptime_seconds();
-    }
-#endif
-
     if (g_cfg_dirty)
         console_puts("CONFIG (UNSAVED)\n\n");
     else
         console_puts("CONFIG (SAVED)\n\n");
-
-    /* date */
-    console_puts("date : ");
-    if (g_have_date)
-        mini_printf("%04d-%02d-%02d\n", g_date_y, g_date_mo, g_date_d);
-    else
-        console_puts("NOT SET\n");
-
-    /* time */
-    console_puts("time : ");
-    if (g_have_date && g_have_time) {
-
-        int y  = g_date_y;
-        int mo = g_date_mo;
-        int d  = g_date_d;
-        int h  = g_time_h;
-        int m  = g_time_m;
-        int s  = g_time_s;
-
-        uint32_t now_s   = uptime_seconds();
-        uint32_t delta_s = now_s - g_time_set_uptime_s;
-
-        /* Apply elapsed time (same math as save, display-only) */
-        s += (int)(delta_s % 60);
-        delta_s /= 60;
-        m += (int)(delta_s % 60);
-        delta_s /= 60;
-        h += (int)(delta_s % 24);
-        delta_s /= 24;
-
-        while (s >= 60) { s -= 60; m++; }
-        while (m >= 60) { m -= 60; h++; }
-        while (h >= 24) { h -= 24; delta_s++; }
-
-        while (delta_s--) {
-            advance_one_day(&y, &mo, &d);
-        }
-
-        mini_printf("%02d:%02d:%02d\n", h, m, s);
-
-    } else {
-        console_puts("NOT SET\n");
-    }
 
     /* lat / lon / tz */
     mini_printf("lat  : %L\n", g_cfg.latitude_e4);
