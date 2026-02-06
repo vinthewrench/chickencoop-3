@@ -13,6 +13,8 @@
  */
 
 #include <stdbool.h>
+#include "time_dst.h"
+
 
 /*
  * US Daylight Saving Time determination.

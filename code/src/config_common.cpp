@@ -44,6 +44,7 @@ void config_defaults(struct config *cfg)
 
     cfg->tz        = -6;   /* CST */
     cfg->honor_dst = 1;
+    cfg->rtc_set_epoch = 0;     // last time we set the clock
 
     /* 34.4653°, -93.3628° */
     cfg->latitude_e4  =  344653;

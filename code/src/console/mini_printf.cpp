@@ -64,6 +64,37 @@ static void put_latlon_e4(int32_t v)
     put_uint_pad((unsigned int)frac, 4, '0');
 }
 
+/* print unsigned long (32-bit) with optional zero padding */
+static void put_ulong_pad(uint32_t v, unsigned int width, char pad)
+{
+    char buf[10];
+    unsigned int i = 0;
+
+    if (v == 0) {
+        buf[i++] = '0';
+    } else {
+        while (v > 0) {
+            buf[i++] = (char)('0' + (v % 10));
+            v /= 10;
+        }
+    }
+
+    while (i < width)
+        buf[i++] = pad;
+
+    while (i--)
+        console_putc(buf[i]);
+}
+
+static void put_long_pad(int32_t v, unsigned int width, char pad)
+{
+    if (v < 0) {
+        console_putc('-');
+        put_ulong_pad((uint32_t)(-v), width ? width - 1 : 0, pad);
+    } else {
+        put_ulong_pad((uint32_t)v, width, pad);
+    }
+}
 
 void mini_printf(const char *fmt, ...)
 {
@@ -71,6 +102,7 @@ void mini_printf(const char *fmt, ...)
     va_start(ap, fmt);
 
     while (*fmt) {
+
         if (*fmt != '%') {
             console_putc(*fmt++);
             continue;
@@ -92,7 +124,15 @@ void mini_printf(const char *fmt, ...)
             fmt++;
         }
 
+        /* parse optional long modifier */
+        bool long_flag = false;
+        if (*fmt == 'l') {
+            long_flag = true;
+            fmt++;
+        }
+
         switch (*fmt) {
+
         case 's':
             console_puts(va_arg(ap, const char *));
             break;
@@ -102,16 +142,22 @@ void mini_printf(const char *fmt, ...)
             break;
 
         case 'u':
-            put_uint_pad(va_arg(ap, unsigned int), width, pad);
+            if (long_flag)
+                put_ulong_pad(va_arg(ap, uint32_t), width, pad);
+            else
+                put_uint_pad(va_arg(ap, unsigned int), width, pad);
             break;
 
         case 'd':
-            put_int_pad(va_arg(ap, int), width, pad);
+            if (long_flag)
+                put_long_pad(va_arg(ap, int32_t), width, pad);
+            else
+                put_int_pad(va_arg(ap, int), width, pad);
             break;
 
         case 'L':
             put_latlon_e4(va_arg(ap, int32_t));
-             break;
+            break;
 
         case '%':
             console_putc('%');

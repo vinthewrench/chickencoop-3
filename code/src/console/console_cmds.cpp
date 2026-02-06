@@ -600,8 +600,10 @@ static void cmd_set(int argc, char **argv)
     /* --------------------------------------------------
      * set time HH:MM[:SS]
      * Commits immediately to RTC using existing RTC date
+     * Also records epoch at time of set (UTC-normalized)
      * -------------------------------------------------- */
     if (!strcmp(argv[1], "time") && argc == 3) {
+
         int hh = 0, mi = 0, ss = 0;
         int y, mo, d;
 
@@ -622,12 +624,26 @@ static void cmd_set(int argc, char **argv)
         /* Preserve existing RTC date */
         rtc_get_time(&y, &mo, &d, NULL, NULL, NULL);
 
+        /* Program RTC */
         if (!rtc_set_time(y, mo, d, hh, mi, ss)) {
             console_puts("ERROR: RTC SET FAILED\n");
             return;
         }
 
-        /* Time change does NOT invalidate solar */
+        /* Record UTC epoch at moment of set */
+        g_cfg.rtc_set_epoch =
+            rtc_epoch_from_ymdhms(
+                y, mo, d,
+                hh, mi, ss,
+                g_cfg.tz,
+                g_cfg.honor_dst
+            );
+
+        /* Immediately persist drift baseline */
+        config_save(&g_cfg);
+
+        g_cfg_dirty = false;
+
         console_puts("OK\n");
         return;
     }
@@ -921,14 +937,50 @@ static void cmd_rtc(int argc, char **argv)
 
     int y, mo, d, h, m, s;
     rtc_get_time(&y, &mo, &d, &h, &m, &s);
+    uint32_t epoch = rtc_get_epoch();
 
     console_puts("RTC: VALID\n");
-
     mini_printf("date: %04d-%02d-%02d\n", y, mo, d);
     mini_printf("time: %02d:%02d:%02d\n", h, m, s);
+    mini_printf("epoch: %lu\n", (unsigned long)epoch);
 
     uint16_t mins = rtc_minutes_since_midnight();
     mini_printf("minutes_since_midnight: %u\n", (unsigned)mins);
+
+    /* --------------------------------------------------
+        * Drift measurement
+        * -------------------------------------------------- */
+       if (g_cfg.rtc_set_epoch == 0) {
+           console_puts("since_set: UNKNOWN\n");
+           return;
+       }
+
+       uint32_t delta;
+
+       if (epoch >= g_cfg.rtc_set_epoch) {
+           delta = epoch - g_cfg.rtc_set_epoch;
+       } else {
+           /* Should never happen, but stay deterministic */
+           delta = 0;
+       }
+
+       uint32_t days  = delta / 86400u;
+       delta %= 86400u;
+
+       uint32_t hours = delta / 3600u;
+       delta %= 3600u;
+
+       uint32_t mins2 = delta / 60u;
+       uint32_t secs  = delta % 60u;
+
+       mini_printf(
+           "since_set: %lu sec (%lu days %02lu:%02lu:%02lu)\n",
+           (unsigned long)(epoch - g_cfg.rtc_set_epoch),
+           (unsigned long)days,
+           (unsigned long)hours,
+           (unsigned long)mins2,
+           (unsigned long)secs
+       );
 }
 
 
@@ -948,6 +1000,15 @@ static void cmd_config(int, char **)
 
     mini_printf("dst  : %s\n",
                 g_cfg.honor_dst ? "ON (US rules)" : "OFF");
+
+    /* drift baseline */
+    if (g_cfg.rtc_set_epoch != 0) {
+        mini_printf("rtc_set_epoch : %lu\n",
+                    (unsigned long)g_cfg.rtc_set_epoch);
+    } else {
+        console_puts("rtc_set_epoch : (not set)\n");
+    }
+
 
     /* mechanical timing */
      mini_printf("door_travel_ms : %u\n", g_cfg.door_travel_ms);

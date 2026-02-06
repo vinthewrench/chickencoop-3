@@ -34,6 +34,7 @@ struct config {
     int32_t longitude_e4;       /* degrees * 10000 */
     int32_t tz;                 /* minutes offset from UTC */
     uint8_t honor_dst;          /* 0 or 1 */
+    uint32_t rtc_set_epoch;     /* last time we set the clock */
 
     /* Mechanical timing (physical constants) */
     uint16_t door_travel_ms;    /* full open or close time */
@@ -41,7 +42,7 @@ struct config {
     uint16_t door_settle_ms;        /* delay after close before locking */
     uint16_t lock_settle_ms;       /* time after unlock before motion */
 
-    uint8_t _pad1[2];           /* align events */
+     uint8_t _pad1[2];           /* align events */
 
     /* Scheduler intent */
     struct Event events[MAX_EVENTS];

@@ -19,6 +19,11 @@ SIZE    := avr-size
 AVRDUDE := avrdude
 
 # ------------------------------------------------------------
+# ISP Bitclock (adjust if programming becomes unreliable)
+# ------------------------------------------------------------
+ISP_BITCLOCK ?= 5
+
+# ------------------------------------------------------------
 # Programmer
 # ------------------------------------------------------------
 PROGRAMMER  := atmelice_isp
@@ -148,7 +153,7 @@ isp:
 # ------------------------------------------------------------
 flash-part: $(PROJECT).hex
 	$(AVRDUDE) -c $(PROGRAMMER) -P $(PORT) -p $(AVRDUDE_MCU) \
-		-B 50 -D \
+		-B $(ISP_BITCLOCK) -D \
 		-U flash:w:"$<":i
 
 # ------------------------------------------------------------
@@ -157,7 +162,7 @@ flash-part: $(PROJECT).hex
 # ------------------------------------------------------------
 flash: $(PROJECT).hex
 	$(AVRDUDE) -c $(PROGRAMMER) -P $(PORT) -p $(AVRDUDE_MCU) \
-		-B 5 \
+		-B $(ISP_BITCLOCK) \
 		-U flash:w:"$<":i
 
 # ------------------------------------------------------------
@@ -172,7 +177,7 @@ check-fuses:
 # ------------------------------------------------------------
 # Fuse configuration — LOCKED
 #
-# MCU: ATmega32U4RC-A
+# MCU: atmega1284p
 #
 # Clock:
 #   - Internal 8 MHz RC oscillator
@@ -200,9 +205,26 @@ check-fuses:
 #
 # VERIFIED WORKING FUSE VALUES (READ FROM SILICON):
 #   lfuse = 0xE2
-#   hfuse = 0xD9   # JTAG disabled
-#   efuse = 0xFB.  # Brown-Out Detect disabled (ATmega1284P)
+#     CKDIV8   = 1  (clock not divided by 8)
+#     CKOUT    = 1  (clock output disabled)
+#     SUT1:0   = 10 (recommended start-up for internal RC)
+#     CKSEL3:0 = 0010 (internal 8 MHz RC oscillator)
+
+#   hfuse = 0xD1  // Preserve EEPROM
+#   hfuse = 0xD9  // Erase EEPROM
 #
+#
+#     RSTDISBL = 1  (reset pin enabled)
+#     DWEN     = 1  (debugWIRE disabled)
+#     SPIEN    = 0  (ISP programming enabled)
+#     WDTON    = 1  (watchdog not always-on)
+#     EESAVE   = 0  (EEPROM preserved through chip erase)
+#     BOOTSZ1:0= 00 (maximum boot size, unused since no bootloader)
+#     BOOTRST  = 1  (reset vector = application)
+
+#   efuse = 0xFB
+#     BODLEVEL2:0 = 111 (Brown-Out Detect disabled)
+# #
 # POLICY:
 #   - Fuse values are LOCKED.
 #   - DO NOT change fuse values unless hardware or clock source changes.
@@ -212,7 +234,7 @@ check-fuses:
 set-fuses:
 	$(AVRDUDE) -c $(PROGRAMMER) -P $(PORT) -p $(AVRDUDE_MCU) -B 200 \
 		-U lfuse:w:0xE2:m \
-		-U hfuse:w:0xD9:m \
+		-U hfuse:w:0xD1:m \
 		-U efuse:w:0xFB:m
 
 
