@@ -52,7 +52,7 @@ void config_defaults(struct config *cfg)
 
     /* ---- Mechanical timing defaults ---- */
 
-      cfg->door_travel_ms = 8000;   /* 8 seconds full open/close */
+      cfg->door_travel_ms = 10000;   /* 10 seconds full open/close */
       cfg->lock_pulse_ms  = 500;    /* 500 ms solenoid pulse */
 
       cfg->door_settle_ms = 2000;   /* allow gravity + obstruction to clear */

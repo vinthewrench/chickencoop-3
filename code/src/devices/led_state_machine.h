@@ -51,7 +51,10 @@ void led_state_machine_init(void);
  * - Takes effect immediately
  * - Resets any internal timing
  */
-void led_state_machine_set(led_mode_t mode, led_color_t color);
+void led_state_machine_set(led_mode_t mode,
+    led_color_t color,
+    uint16_t cycles = 0   // 0 = infinite
+);
 
 /*
  * Periodic service function.

@@ -37,6 +37,7 @@
  #include <string.h>
  #include <stdlib.h>
  #include <ctype.h>
+ #include <util/delay.h>
 
 
 #include "console/console_io.h"
@@ -58,6 +59,9 @@
 #include "devices/devices.h"
 #include "devices/led_state_machine.h"
 #include "state_reducer.h"
+#include "system_sleep.h"
+
+
 
 extern bool want_exit;
 
@@ -85,11 +89,11 @@ static void cmd_door(int argc, char **argv);
 static void cmd_lock(int argc, char **argv);
 static void cmd_run(int argc, char **argv);
 static void cmd_event(int argc, char **argv);
+static void cmd_sleep(int argc, char **argv);
 
 #ifdef HOST_BUILD
 static void cmd_next(int argc, char **argv);
 static void cmd_reduce(int argc, char **argv);
-static void cmd_sleep(int argc, char **argv);
 #endif
 
 // -----------------------------------------------------------------------------
@@ -925,6 +929,7 @@ static void cmd_led(int argc, char **argv)
     console_puts("OK\n");
 }
 
+
 static void cmd_rtc(int argc, char **argv)
 {
     (void)argc;
@@ -1400,14 +1405,128 @@ static void cmd_reduce(int argc, char **argv)
         console_puts("(no scheduled state)\n");
 }
 
+
+#endif /* HOST_BUILD */
+
+#ifdef HOST_BUILD
+
 static void cmd_sleep(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
-    console_puts("sleep: not yet implemented\n");
+    console_puts("sleep: not available in HOST\n");
 }
 
-#endif /* HOST_BUILD */
+#else /* HOST_BUILD */
+static void cmd_sleep(int argc, char **argv)
+{
+    ensure_cfg_loaded();
+
+    if (argc < 2) {
+        console_puts("usage: sleep <minutes|next>\n");
+        return;
+    }
+
+    if (!rtc_time_is_set()) {
+        console_puts("sleep: RTC not set\n");
+        return;
+    }
+
+    /* ==========================================================
+     * sleep next
+     * ========================================================== */
+    if (!strcmp(argv[1], "next")) {
+
+        uint16_t now_min = rtc_minutes_since_midnight();
+
+        uint16_t next_min;
+        if (!scheduler_next_event_minute(&next_min)) {
+            console_puts("sleep: no scheduled events\n");
+            return;
+        }
+
+        if (next_min <= now_min)
+            next_min = (uint16_t)((now_min + 1u) % 1440u);
+
+        mini_printf("sleep: until %02u:%02u\n",
+                    (unsigned)(next_min / 60u),
+                    (unsigned)(next_min % 60u));
+
+        rtc_alarm_disable();
+        rtc_alarm_clear_flag();
+
+        if (!rtc_alarm_set_minute_of_day(next_min)) {
+            console_puts("sleep: alarm set failed\n");
+            return;
+        }
+
+        system_sleep_until(next_min);
+
+        /* Clear AF after wake */
+        rtc_alarm_clear_flag();
+
+        console_puts("woke\n");
+
+             return;
+    }
+
+    /* ==========================================================
+     * sleep <minutes>
+     * ========================================================== */
+
+    int minutes = atoi(argv[1]);
+    if (minutes <= 0 || minutes > 1440) {
+        console_puts("sleep: invalid minutes\n");
+        return;
+    }
+
+    int y, mo, d, h, m, s;
+    rtc_get_time(&y, &mo, &d, &h, &m, &s);
+
+    if (s > 0) {
+        m++;
+        if (m >= 60) {
+            m = 0;
+            h = (h + 1) % 24;
+        }
+    }
+
+    uint16_t now_min = (uint16_t)(h * 60u + m);
+    uint16_t target  = (uint16_t)((now_min + (uint16_t)minutes) % 1440u);
+
+    if (target <= now_min)
+        target = (uint16_t)((now_min + 1u) % 1440u);
+
+    mini_printf("sleep: %u minute(s)\n", (unsigned)minutes);
+    mini_printf("now    : %02u:%02u\n",
+                (unsigned)(now_min / 60u),
+                (unsigned)(now_min % 60u));
+    mini_printf("target : %02u:%02u\n",
+                (unsigned)(target / 60u),
+                (unsigned)(target % 60u));
+
+
+    rtc_alarm_disable();
+    rtc_alarm_clear_flag();
+
+    if (!rtc_alarm_set_minute_of_day(target)) {
+        console_puts("sleep: alarm set failed\n");
+        return;
+    }
+
+    system_sleep_until(target);
+
+    /* Clear AF after wake */
+    rtc_alarm_clear_flag();
+
+    led_state_machine_set(LED_BLINK, LED_GREEN, 5);
+
+
+    console_puts("woke\n");
+
+}
+
+#endif
 
 
 typedef void (*cmd_fn_t)(int argc, char **argv);
@@ -1546,7 +1665,14 @@ typedef struct {
       "rtc\n" \
       "  Display raw RTC date/time and validity\n" \
       "  No DST, no staging, no scheduler logic\n" \
+    ) \
+    X(sleep, 0, 1, cmd_sleep, \
+          "Sleep til next scheduled event", \
+          "sleep\n" \
+          "sleep <minutes>\n" \
+          "  sleep till the next resolved scheduler event (if any)\n" \
     )
+
 
 /* ------------------------------------------------------------
  * Host-only commands
@@ -1569,17 +1695,6 @@ typedef struct {
 #define CMD_SCHED_HOST(X)
 #endif
 
-#ifdef HOST_BUILD
-#define CMD_SLEEP_HOST(X) \
-    X(sleep, 0, 0, cmd_sleep, \
-      "Sleep til next scheduled event", \
-      "sleep\n" \
-      "  sleep till the next resolved scheduler event (if any)\n" \
-    )
-#else
-#define CMD_SLEEP_HOST(X)
-#endif
-
 /* ------------------------------------------------------------
  * Command string declarations
  * ------------------------------------------------------------ */
@@ -1599,7 +1714,6 @@ typedef struct {
 
 CMD_LIST(DECLARE_CMD_STRINGS)
 CMD_SCHED_HOST(DECLARE_CMD_STRINGS)
-CMD_SLEEP_HOST(DECLARE_CMD_STRINGS)
 
 /* ------------------------------------------------------------
  * Command table
@@ -1616,7 +1730,6 @@ static const cmd_entry_t cmd_table[] CMD_PROGMEM = {
     { cmd_##name##_name, min, max, fn, cmd_##name##_short, cmd_##name##_long },
     CMD_LIST(MAKE_CMD_ENTRY)
     CMD_SCHED_HOST(MAKE_CMD_ENTRY)
-    CMD_SLEEP_HOST(MAKE_CMD_ENTRY)
 #undef MAKE_CMD_ENTRY
 };
 

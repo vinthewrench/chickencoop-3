@@ -1,29 +1,24 @@
 /*
  * main_firmware.cpp
  *
- * Project: Chicken Coop Controller
- * Purpose: Firmware entry point
+ * Chicken Coop Controller
  *
- * Design intent:
- *  - Firmware executes the SAME scheduler logic as host
- *  - Deterministic, offline, single-threaded
- *  - No alternate execution paths
+ * WAKE TRUTH:
+ *   RTC INT → PD2 (INT0)
+ *   LOW-level trigger
+ *   SLEEP_MODE_PWR_DOWN
  *
- * Execution model:
- *  - Scheduler runs on:
- *      * minute boundary
- *      * OR schedule ETag change
- *  - Schedule application is idempotent
- *  - Firmware sleeps between events using RTC alarm
+ * Anything else is wrong.
  *
- * Hardware: Chicken Coop Controller V3.0
- *
- * Updated: 2026-01-08
+ * Updated: 2026-02-08
  */
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <util/delay.h>
+
+#include <avr/io.h>
+#include <avr/interrupt.h>
 
 #include "config.h"
 #include "config_sw.h"
@@ -49,13 +44,70 @@
 #include "platform/gpio_avr.h"
 #include "platform/i2c.h"
 
+/* ============================================================================
+ * INT0 WAKE (PD2)
+ * ========================================================================== */
+ /*
+  * INT0 ISR
+  *
+  * One-shot mask so we don't re-enter while
+  * RTC INT line is still held low (AF not cleared yet).
+  */
+ ISR(INT0_vect)
+ {
+     EIMSK &= (uint8_t)~(1u << INT0);
+ }
+
+
+
+static void rtc_wake_init_pd2(void)
+{
+    /* PD2 input */
+    DDRD  &= (uint8_t)~(1u << PD2);
+
+    /* External pull-up exists. Leave internal OFF. */
+    PORTD &= (uint8_t)~(1u << PD2);
+
+    /* LOW-level trigger required for PWR_DOWN wake */
+    EICRA &= (uint8_t)~((1u << ISC01) | (1u << ISC00));
+
+    /* Clear any stale flag */
+    EIFR  |= (uint8_t)(1u << INTF0);
+
+    /* Enable INT0 */
+    EIMSK |= (uint8_t)(1u << INT0);
+}
+
+/* ============================================================================
+ * TIME HELPERS
+ * ========================================================================== */
+
+static inline uint16_t minute_of_day(int h, int m)
+{
+    return (uint16_t)((uint16_t)h * 60u + (uint16_t)m);
+}
+
+static inline uint16_t next_minute(uint16_t now_min)
+{
+    return (uint16_t)((now_min + 1u) % 1440u);
+}
+
+static inline uint16_t strictly_future_minute(uint16_t now_min,
+                                              uint16_t target_min)
+{
+    if (target_min <= now_min)
+        return next_minute(now_min);
+    return target_min;
+}
+
+/* ============================================================================
+ * MAIN
+ * ========================================================================== */
 
 int main(void)
 {
-
     uart_init();
 
-    /* 1. Initialize I2C first */
     if (!i2c_init(100000)) {
         mini_printf("I2C init failed\n");
         while (1);
@@ -66,13 +118,18 @@ int main(void)
 
     coop_gpio_init();
 
+    /* INT0 wake path (PD2) */
+    rtc_wake_init_pd2();
+
+    sei();
+
     device_init();
     scheduler_init();
 
     (void)config_load(&g_cfg);
 
     /* ----------------------------------------------------------
-     * CONFIG MODE (latched once per boot)
+     * CONFIG MODE
      * ---------------------------------------------------------- */
     static bool config_consumed = false;
 
@@ -100,18 +157,17 @@ int main(void)
         }
     }
 
-    /* Brief green = healthy boot */
+    /* Healthy boot pulse */
     led_state_machine_set(LED_ON, LED_GREEN);
     {
         uint32_t t0 = uptime_millis();
-        while ((uint32_t)(uptime_millis() - t0) < 1000u) {
+        while ((uint32_t)(uptime_millis() - t0) < 1000u)
             device_tick(uptime_millis());
-        }
     }
     led_state_machine_set(LED_OFF, LED_GREEN);
 
     /* ----------------------------------------------------------
-     * Scheduler loop state
+     * Scheduler state
      * ---------------------------------------------------------- */
     uint16_t last_minute = 0xFFFF;
     uint32_t last_etag   = 0;
@@ -124,35 +180,45 @@ int main(void)
     bool have_sol = false;
 
     /* ----------------------------------------------------------
-     * MAIN RUN LOOP
+     * MAIN LOOP
      * ---------------------------------------------------------- */
     for (;;) {
 
-        /* Always clear latched RTC alarm (safe, idempotent) */
+        /* Always clear AF first.
+           This releases INT line high again. */
         rtc_alarm_clear_flag();
 
-        /* ------------------------------------------------------
-         * Read current time
-         * ------------------------------------------------------ */
+        /* Re-arm INT0 after AF cleared */
+        EIFR  |= (uint8_t)(1u << INTF0);
+        EIMSK |= (uint8_t)(1u << INT0);
+
+        /* Read time */
         int y, mo, d, h, m, s;
         rtc_get_time(&y, &mo, &d, &h, &m, &s);
 
-        uint16_t now_minute = (uint16_t)(h * 60 + m);
+        uint16_t now_minute = minute_of_day(h, m);
         uint32_t cur_etag   = schedule_etag();
 
         bool minute_changed = (now_minute != last_minute);
         bool schedule_dirty = (cur_etag != last_etag);
 
         /* ------------------------------------------------------
-         * If nothing changed, sleep until next event or interrupt
+         * Sleep if nothing changed
          * ------------------------------------------------------ */
         if (!minute_changed && !schedule_dirty) {
+
             uint16_t next_min;
-            if (scheduler_next_event_minute(&next_min)) {
-                system_sleep_until(next_min);
-            } else {
-                system_sleep_until(now_minute); /* idle sleep */
-            }
+            uint16_t wake_min;
+
+            if (scheduler_next_event_minute(&next_min))
+                wake_min = strictly_future_minute(now_minute, next_min);
+            else
+                wake_min = next_minute(now_minute);
+
+            (void)rtc_alarm_set_minute_of_day(wake_min);
+
+            system_sleep_until(wake_min);
+
             continue;
         }
 
@@ -160,7 +226,7 @@ int main(void)
         last_etag   = cur_etag;
 
         /* ------------------------------------------------------
-         * Recompute solar ONCE per calendar day
+         * Solar recompute per day
          * ------------------------------------------------------ */
         if (y != last_y || mo != last_mo || d != last_d) {
 
@@ -196,7 +262,7 @@ int main(void)
         }
 
         /* ------------------------------------------------------
-         * APPLY SCHEDULE (same reducer + executor as host)
+         * Apply schedule
          * ------------------------------------------------------ */
         {
             struct reduced_state rs;
@@ -205,6 +271,7 @@ int main(void)
             const Event *events = config_events_get(&used);
 
             if (events && used > 0) {
+
                 state_reducer_run(
                     events,
                     MAX_EVENTS,
@@ -220,12 +287,18 @@ int main(void)
         /* ------------------------------------------------------
          * Program next wake
          * ------------------------------------------------------ */
-        uint16_t next_min;
-        if (scheduler_next_event_minute(&next_min)) {
-            rtc_alarm_set_minute_of_day(next_min);
-            system_sleep_until(next_min);
-        } else {
-            system_sleep_until(now_minute);
+        {
+            uint16_t next_min;
+            uint16_t wake_min;
+
+            if (scheduler_next_event_minute(&next_min))
+                wake_min = strictly_future_minute(now_minute, next_min);
+            else
+                wake_min = next_minute(now_minute);
+
+            (void)rtc_alarm_set_minute_of_day(wake_min);
+
+            system_sleep_until(wake_min);
         }
     }
 }

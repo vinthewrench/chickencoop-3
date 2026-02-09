@@ -170,3 +170,6 @@ uint32_t rtc_epoch_from_ymdhms(
     int h, int m, int s,
     int tz_hours,
     bool honor_dst);
+
+
+void rtc_debug_dump(void);

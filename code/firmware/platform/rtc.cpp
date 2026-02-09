@@ -55,6 +55,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "console/mini_printf.h"
+
 /* ============================================================================
  * PCF8523 REGISTER MAP
  * ========================================================================== */
@@ -90,8 +92,12 @@
 /** STOP bit: 1 = oscillator stopped */
 #define CTRL1_STOP_BIT       (1 << 5)
 
+#define CTRL1_AIE_BIT        (1 << 1)
+
+
+
 /** Alarm Interrupt Enable */
-#define CTRL2_AIE_BIT        (1 << 1)
+//#define CTRL2_AIE_BIT        (1 << 1)
 
 /** Alarm Flag (latched when alarm match occurs) */
 #define CTRL2_AF_BIT         (1 << 3)
@@ -322,52 +328,115 @@ void rtc_get_time(int *y, int *mo, int *d,
 /**
  * @brief Set alarm match for hour/minute.
  */
-bool rtc_alarm_set_hm(uint8_t hour, uint8_t minute)
+
+
+ bool rtc_alarm_set_hm(uint8_t hour, uint8_t minute)
+ {
+     if (hour > 23u || minute > 59u)
+         return false;
+
+     /* ------------------------------------------------------------------
+      * Guard against re-arming inside the match window.
+      * PCF8523 compares hour+minute only (seconds ignored).
+      * If we arm during the matching minute (sec > 0),
+      * AF will immediately assert and INT will stay low.
+      * ------------------------------------------------------------------ */
+     {
+         uint8_t buf[3];
+
+         if (!i2c_read(PCF8523_ADDR7, REG_SECONDS, buf, 3))
+             return false;
+
+         uint8_t now_s = bcd_to_bin(buf[0] & 0x7F);
+         uint8_t now_m = bcd_to_bin(buf[1] & 0x7F);
+         uint8_t now_h = bcd_to_bin(buf[2] & 0x3F);
+
+         if ((now_h == hour) && (now_m == minute) && (now_s != 0u)) {
+             /* Inside matching minute window — refuse */
+             return false;
+         }
+     }
+
+     uint8_t c1, c2;
+
+     /* 1) Disable AIE */
+     if (!i2c_read(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1))
+         return false;
+     c1 &= (uint8_t)~CTRL1_AIE_BIT;
+     if (!i2c_write(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1))
+         return false;
+
+     /* 2) Clear AF */
+     if (!i2c_read(PCF8523_ADDR7, REG_CONTROL_2, &c2, 1))
+         return false;
+     c2 &= (uint8_t)~CTRL2_AF_BIT;
+     if (!i2c_write(PCF8523_ADDR7, REG_CONTROL_2, &c2, 1))
+         return false;
+
+     /* 3) Program alarm registers */
+     uint8_t a[4];
+     a[0] = (uint8_t)(bin_to_bcd(minute) & 0x7Fu);
+     a[1] = (uint8_t)(bin_to_bcd(hour)   & 0x3Fu);
+     a[2] = (uint8_t)ALARM_DISABLE;
+     a[3] = (uint8_t)ALARM_DISABLE;
+
+     if (!i2c_write(PCF8523_ADDR7, REG_ALARM_MINUTE, a, sizeof(a)))
+         return false;
+
+     /* 4) Clear AF again (defensive) */
+     if (!i2c_read(PCF8523_ADDR7, REG_CONTROL_2, &c2, 1))
+         return false;
+     c2 &= (uint8_t)~CTRL2_AF_BIT;
+     if (!i2c_write(PCF8523_ADDR7, REG_CONTROL_2, &c2, 1))
+         return false;
+
+     /* 5) Enable AIE */
+     if (!i2c_read(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1))
+         return false;
+     c1 |= (uint8_t)CTRL1_AIE_BIT;
+     if (!i2c_write(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1))
+         return false;
+
+     return true;
+ }
+
+
+ void rtc_alarm_disable(void)
+ {
+     uint8_t c1;
+
+     if (!i2c_read(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1))
+         return;
+
+     c1 &= (uint8_t)~CTRL1_AIE_BIT;
+     (void)i2c_write(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1);
+ }
+
+ void rtc_alarm_clear_flag(void)
+ {
+     uint8_t c2;
+
+     if (!i2c_read(PCF8523_ADDR7, REG_CONTROL_2, &c2, 1))
+         return;
+
+     c2 &= (uint8_t)~CTRL2_AF_BIT;
+     (void)i2c_write(PCF8523_ADDR7, REG_CONTROL_2, &c2, 1);
+ }
+
+
+void rtc_debug_dump(void)
 {
-    uint8_t a[4];
+    uint8_t c1, c2;
 
-    a[0] = bin_to_bcd(minute) & 0x7F;
-    a[1] = bin_to_bcd(hour)   & 0x3F;
-    a[2] = ALARM_DISABLE;
-    a[3] = ALARM_DISABLE;
-
-    if (!i2c_write(PCF8523_ADDR7, REG_ALARM_MINUTE, a, sizeof(a)))
-        return false;
-
-    uint8_t c2;
-    if (!i2c_read(PCF8523_ADDR7, REG_CONTROL_2, &c2, 1))
-        return false;
-
-    c2 |= CTRL2_AIE_BIT;
-    c2 &= (uint8_t)~CTRL2_AF_BIT;
-
-    return i2c_write(PCF8523_ADDR7, REG_CONTROL_2, &c2, 1);
-}
-
-/**
- * @brief Disable alarm interrupt.
- */
-void rtc_alarm_disable(void)
-{
-    uint8_t c2;
-
-    if (!i2c_read(PCF8523_ADDR7, REG_CONTROL_2, &c2, 1))
+    if (!i2c_read(PCF8523_ADDR7, REG_CONTROL_1, &c1, 1) ||
+        !i2c_read(PCF8523_ADDR7, REG_CONTROL_2, &c2, 1)) {
+        mini_printf("RTC: read failed\n");
         return;
+    }
 
-    c2 &= (uint8_t)~CTRL2_AIE_BIT;
-    (void)i2c_write(PCF8523_ADDR7, REG_CONTROL_2, &c2, 1);
-}
-
-/**
- * @brief Clear alarm flag (releases INT line).
- */
-void rtc_alarm_clear_flag(void)
-{
-    uint8_t c2;
-
-    if (!i2c_read(PCF8523_ADDR7, REG_CONTROL_2, &c2, 1))
-        return;
-
-    c2 &= (uint8_t)~CTRL2_AF_BIT;
-    (void)i2c_write(PCF8523_ADDR7, REG_CONTROL_2, &c2, 1);
+    mini_printf("RTC CTRL1=0x%02x CTRL2=0x%02x AIE=%u AF=%u\n",
+                c1,
+                c2,
+                (c1 & CTRL1_AIE_BIT) ? 1u : 0u,
+                (c2 & CTRL2_AF_BIT) ? 1u : 0u);
 }

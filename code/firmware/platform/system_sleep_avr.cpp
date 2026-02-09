@@ -4,59 +4,78 @@
  * Project: Chicken Coop Controller
  * Purpose: Low-power sleep implementation for AVR firmware
  *
+ * Wake source:
+ *   RTC INT → PD2 (INT0)
+ *
  * Design:
  *  - No policy
  *  - No scheduling
  *  - No RTC interaction
  *  - No logging
  *
- * Responsibility:
- *  - Enter deepest allowed sleep mode
- *  - Resume execution on ANY enabled interrupt
- *
- * Wake sources are configured elsewhere:
- *  - RTC alarm INT (PCF8523)
- *  - Door button
- *  - Config switch
- *  - Any other enabled PCINT / EXTINT
- *
- * Updated: 2026-01-08
+ * Updated: 2026-02-08
  */
 
 #include "system_sleep.h"
-
+#include <avr/io.h>
 #include <avr/sleep.h>
 #include <avr/interrupt.h>
 
+
 /*
- * Enter low-power sleep until an interrupt occurs.
+ * Initialize RTC wake line (PD2 / INT0).
  *
- * Notes:
- *  - Caller MUST have already:
- *      - Armed RTC alarm if time-based wake is desired
- *      - Enabled relevant interrupt sources
- *  - This function performs no checks and no setup
- *  - Execution resumes immediately after wake
+ * LOW-level trigger required for wake from PWR_DOWN.
+ */
+void system_sleep_init(void)
+{
+    /* PD2 input */
+    DDRD  &= (uint8_t)~(1u << PD2);
+
+    /* External pull-up exists on board — leave internal off */
+    PORTD &= (uint8_t)~(1u << PD2);
+
+    /* LOW-level trigger: ISC01=0, ISC00=0 */
+    EICRA &= (uint8_t)~((1u << ISC01) | (1u << ISC00));
+
+    /* Clear pending flag */
+    EIFR  |= (uint8_t)(1u << INTF0);
+
+    /* Enable INT0 */
+    EIMSK |= (uint8_t)(1u << INT0);
+}
+
+/*
+ * Enter PWR_DOWN until interrupt occurs.
  */
 void system_sleep_until(uint16_t minute)
 {
-    (void)minute;  /* minute is advisory; AVR sleep is interrupt-driven */
+    (void)minute;
 
-    /* Select deepest sleep mode allowed */
-    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    cli();
 
-    sleep_enable();
+    /* Clear any stale INT0 flag */
+    EIFR |= (uint8_t)(1u << INTF0);
 
     /*
-     * Ensure interrupts are enabled before sleeping.
-     * If an interrupt is already pending, sleep_cpu()
-     * will return immediately.
+     * Guard:
+     * If RTC INT already asserted (low),
+     * do NOT enter sleep.
      */
-    sei();
+    if ((PIND & (1u << PD2)) == 0u) {
+        sei();
+        return;
+    }
 
-    /* CPU sleeps here */
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    sleep_enable();
+
+    sei();
     sleep_cpu();
 
-    /* Execution resumes here after wake */
+    /* Execution resumes here */
+
+    cli();
     sleep_disable();
+    sei();
 }
