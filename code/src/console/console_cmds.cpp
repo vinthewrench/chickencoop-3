@@ -62,6 +62,40 @@
 #include "system_sleep.h"
 
 
+#ifndef HOST_BUILD
+
+
+#define DOOR_SW_BIT     PD3
+#define RTC_INT_BIT     PD2
+
+
+static inline void gpio_rtc_int_input_init(void)
+{
+    /* RTC_INT uses external pull-up */
+    DDRD  &= (uint8_t)~(1u << RTC_INT_BIT);
+    PORTD &= (uint8_t)~(1u << RTC_INT_BIT);
+}
+
+static inline void gpio_door_sw_input_init(void)
+{
+    /* Door switch uses internal pull-up */
+    DDRD  &= (uint8_t)~(1u << DOOR_SW_BIT);
+    PORTD |=  (uint8_t)(1u << DOOR_SW_BIT);
+}
+
+static inline uint8_t gpio_rtc_int_is_asserted(void)
+{
+    return (PIND & (1u << RTC_INT_BIT)) == 0u;
+}
+
+static inline uint8_t gpio_door_sw_is_asserted(void)
+{
+    return (PIND & (1u << DOOR_SW_BIT)) == 0u;
+}
+
+
+#endif
+
 
 extern bool want_exit;
 
@@ -1417,7 +1451,11 @@ static void cmd_sleep(int argc, char **argv)
     console_puts("sleep: not available in HOST\n");
 }
 
-#else /* HOST_BUILD */
+#else /* ! HOST_BUILD */
+/* Wake source state queries */
+
+
+
 static void cmd_sleep(int argc, char **argv)
 {
     ensure_cfg_loaded();
@@ -1431,6 +1469,8 @@ static void cmd_sleep(int argc, char **argv)
         console_puts("sleep: RTC not set\n");
         return;
     }
+
+    uint16_t target = 0;
 
     /* ==========================================================
      * sleep next
@@ -1448,63 +1488,53 @@ static void cmd_sleep(int argc, char **argv)
         if (next_min <= now_min)
             next_min = (uint16_t)((now_min + 1u) % 1440u);
 
+        target = next_min;
+
         mini_printf("sleep: until %02u:%02u\n",
-                    (unsigned)(next_min / 60u),
-                    (unsigned)(next_min % 60u));
+                    (unsigned)(target / 60u),
+                    (unsigned)(target % 60u));
+    }
+    else
+    {
+        /* ==========================================================
+         * sleep <minutes>
+         * ========================================================== */
 
-        rtc_alarm_disable();
-        rtc_alarm_clear_flag();
-
-        if (!rtc_alarm_set_minute_of_day(next_min)) {
-            console_puts("sleep: alarm set failed\n");
+        int minutes = atoi(argv[1]);
+        if (minutes <= 0 || minutes > 1440) {
+            console_puts("sleep: invalid minutes\n");
             return;
         }
 
-        system_sleep_until(next_min);
+        int y, mo, d, h, m, s;
+        rtc_get_time(&y, &mo, &d, &h, &m, &s);
 
-        /* Clear AF after wake */
-        rtc_alarm_clear_flag();
-
-        console_puts("woke\n");
-
-             return;
-    }
-
-    /* ==========================================================
-     * sleep <minutes>
-     * ========================================================== */
-
-    int minutes = atoi(argv[1]);
-    if (minutes <= 0 || minutes > 1440) {
-        console_puts("sleep: invalid minutes\n");
-        return;
-    }
-
-    int y, mo, d, h, m, s;
-    rtc_get_time(&y, &mo, &d, &h, &m, &s);
-
-    if (s > 0) {
-        m++;
-        if (m >= 60) {
-            m = 0;
-            h = (h + 1) % 24;
+        if (s > 0) {
+            m++;
+            if (m >= 60) {
+                m = 0;
+                h = (h + 1) % 24;
+            }
         }
+
+        uint16_t now_min = (uint16_t)(h * 60u + m);
+        target = (uint16_t)((now_min + (uint16_t)minutes) % 1440u);
+
+        if (target <= now_min)
+            target = (uint16_t)((now_min + 1u) % 1440u);
+
+        mini_printf("sleep: %u minute(s)\n", (unsigned)minutes);
+        mini_printf("now    : %02u:%02u\n",
+                    (unsigned)(now_min / 60u),
+                    (unsigned)(now_min % 60u));
+        mini_printf("target : %02u:%02u\n",
+                    (unsigned)(target / 60u),
+                    (unsigned)(target % 60u));
     }
 
-    uint16_t now_min = (uint16_t)(h * 60u + m);
-    uint16_t target  = (uint16_t)((now_min + (uint16_t)minutes) % 1440u);
-
-    if (target <= now_min)
-        target = (uint16_t)((now_min + 1u) % 1440u);
-
-    mini_printf("sleep: %u minute(s)\n", (unsigned)minutes);
-    mini_printf("now    : %02u:%02u\n",
-                (unsigned)(now_min / 60u),
-                (unsigned)(now_min % 60u));
-    mini_printf("target : %02u:%02u\n",
-                (unsigned)(target / 60u),
-                (unsigned)(target % 60u));
-
+    /* ----------------------------------------------------------
+     * Program alarm
+     * ---------------------------------------------------------- */
 
     rtc_alarm_disable();
     rtc_alarm_clear_flag();
@@ -1514,16 +1544,52 @@ static void cmd_sleep(int argc, char **argv)
         return;
     }
 
+    /* ----------------------------------------------------------
+     * Sleep
+     * ---------------------------------------------------------- */
+
     system_sleep_until(target);
 
-    /* Clear AF after wake */
-    rtc_alarm_clear_flag();
+    /* ----------------------------------------------------------
+     * WAKE ANALYSIS
+     * ---------------------------------------------------------- */
 
-    led_state_machine_set(LED_BLINK, LED_GREEN, 5);
+    bool woke_rtc  = gpio_rtc_int_is_asserted();
+    bool woke_door = gpio_door_sw_is_asserted();
 
+    /* If RTC woke us, clear AF */
+    if (woke_rtc) {
+        rtc_alarm_clear_flag();
+    }
 
-    console_puts("woke\n");
+    /* If door woke us, wait for release (bounded) */
+    if (woke_door) {
+        for (uint16_t i = 0; i < 5000u; i++) {
+            if (!gpio_door_sw_is_asserted())
+                break;
+            _delay_ms(1);
+        }
+    }
 
+    /* Clear interrupt flags */
+    EIFR |= (1u << INTF0) | (1u << INTF1);
+
+    /* Re-arm interrupts only if lines are HIGH */
+    if (!gpio_rtc_int_is_asserted())
+        EIMSK |= (1u << INT0);
+
+    if (!gpio_door_sw_is_asserted())
+        EIMSK |= (1u << INT1);
+
+    /* Visual feedback */
+    if (woke_door)
+        led_state_machine_set(LED_BLINK, LED_RED, 3);
+    else if (woke_rtc)
+        led_state_machine_set(LED_BLINK, LED_GREEN, 3);
+
+    mini_printf("woke: rtc=%u door=%u\n",
+                woke_rtc ? 1u : 0u,
+                woke_door ? 1u : 0u);
 }
 
 #endif

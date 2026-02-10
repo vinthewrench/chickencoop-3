@@ -22,3 +22,6 @@
  *  - No busy-waiting
  */
 void system_sleep_until(uint16_t minute);
+
+
+ void system_sleep_init(void);

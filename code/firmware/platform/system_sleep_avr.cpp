@@ -21,61 +21,64 @@
 #include <avr/sleep.h>
 #include <avr/interrupt.h>
 
+#include "gpio_avr.h"
 
 /*
  * Initialize RTC wake line (PD2 / INT0).
  *
  * LOW-level trigger required for wake from PWR_DOWN.
  */
-void system_sleep_init(void)
-{
-    /* PD2 input */
-    DDRD  &= (uint8_t)~(1u << PD2);
+ void system_sleep_init(void)
+ {
+     gpio_rtc_int_input_init();
+     gpio_door_sw_input_init();
 
-    /* External pull-up exists on board — leave internal off */
-    PORTD &= (uint8_t)~(1u << PD2);
+     /* LOW-level trigger required for PWR_DOWN wake */
+     EICRA &= (uint8_t)~(
+         (1u << ISC01) |
+         (1u << ISC00) |
+         (1u << ISC11) |
+         (1u << ISC10)
+     );
 
-    /* LOW-level trigger: ISC01=0, ISC00=0 */
-    EICRA &= (uint8_t)~((1u << ISC01) | (1u << ISC00));
+     EIFR  |= (uint8_t)((1u << INTF0) | (1u << INTF1));
+     EIMSK |= (uint8_t)((1u << INT0) | (1u << INT1));
+ }
 
-    /* Clear pending flag */
-    EIFR  |= (uint8_t)(1u << INTF0);
-
-    /* Enable INT0 */
-    EIMSK |= (uint8_t)(1u << INT0);
-}
 
 /*
  * Enter PWR_DOWN until interrupt occurs.
  */
-void system_sleep_until(uint16_t minute)
-{
-    (void)minute;
+ void system_sleep_until(uint16_t minute)
+ {
+     (void)minute;
 
-    cli();
+     cli();
 
-    /* Clear any stale INT0 flag */
-    EIFR |= (uint8_t)(1u << INTF0);
+     /* Clear stale flags */
+     EIFR |= (1u << INTF0) | (1u << INTF1);
 
-    /*
-     * Guard:
-     * If RTC INT already asserted (low),
-     * do NOT enter sleep.
-     */
-    if ((PIND & (1u << PD2)) == 0u) {
-        sei();
-        return;
-    }
+     /* Guard against active low lines */
+     if (gpio_rtc_int_is_asserted() ||
+         gpio_door_sw_is_asserted())
+     {
+         sei();
+         return;
+     }
 
-    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-    sleep_enable();
+     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+     sleep_enable();
 
-    sei();
-    sleep_cpu();
+     sei();
+     sleep_cpu();
 
-    /* Execution resumes here */
+     /* Execution resumes here */
 
-    cli();
-    sleep_disable();
-    sei();
-}
+     cli();
+     sleep_disable();
+
+     /* Leave INT0/INT1 masked.
+        Higher-level code decides when to re-arm. */
+
+     sei();
+ }

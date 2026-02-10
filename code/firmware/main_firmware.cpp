@@ -44,6 +44,7 @@
 #include "platform/gpio_avr.h"
 #include "platform/i2c.h"
 
+
 /* ============================================================================
  * INT0 WAKE (PD2)
  * ========================================================================== */
@@ -59,24 +60,29 @@
  }
 
 
+ ISR(INT1_vect)
+ {
+     EIMSK &= (uint8_t)~(1u << INT1);
+ }
 
-static void rtc_wake_init_pd2(void)
-{
-    /* PD2 input */
-    DDRD  &= (uint8_t)~(1u << PD2);
 
-    /* External pull-up exists. Leave internal OFF. */
-    PORTD &= (uint8_t)~(1u << PD2);
+// static void rtc_wake_init_pd2(void)
+// {
+//     /* PD2 input */
+//     DDRD  &= (uint8_t)~(1u << PD2);
 
-    /* LOW-level trigger required for PWR_DOWN wake */
-    EICRA &= (uint8_t)~((1u << ISC01) | (1u << ISC00));
+//     /* External pull-up exists. Leave internal OFF. */
+//     PORTD &= (uint8_t)~(1u << PD2);
 
-    /* Clear any stale flag */
-    EIFR  |= (uint8_t)(1u << INTF0);
+//     /* LOW-level trigger required for PWR_DOWN wake */
+//     EICRA &= (uint8_t)~((1u << ISC01) | (1u << ISC00));
 
-    /* Enable INT0 */
-    EIMSK |= (uint8_t)(1u << INT0);
-}
+//     /* Clear any stale flag */
+//     EIFR  |= (uint8_t)(1u << INTF0);
+
+//     /* Enable INT0 */
+//     EIMSK |= (uint8_t)(1u << INT0);
+// }
 
 /* ============================================================================
  * TIME HELPERS
@@ -119,7 +125,7 @@ int main(void)
     coop_gpio_init();
 
     /* INT0 wake path (PD2) */
-    rtc_wake_init_pd2();
+    system_sleep_init();
 
     sei();
 
@@ -191,6 +197,12 @@ int main(void)
         /* Re-arm INT0 after AF cleared */
         EIFR  |= (uint8_t)(1u << INTF0);
         EIMSK |= (uint8_t)(1u << INT0);
+
+        /* Re-arm INT1 only when door switch is released */
+        EIFR |= (uint8_t)(1u << INTF1);
+        if (!gpio_door_sw_is_asserted()) {
+            EIMSK |= (uint8_t)(1u << INT1);
+        }
 
         /* Read time */
         int y, mo, d, h, m, s;

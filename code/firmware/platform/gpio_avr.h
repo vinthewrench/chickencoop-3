@@ -160,3 +160,32 @@
  *  - Hardware damage
  * -------------------------------------------------------------------------- */
 void coop_gpio_init(void);
+
+
+/* --------------------------------------------------------------------------
+ * External Wake Inputs (INT0 / INT1)
+ * -------------------------------------------------------------------------- */
+
+static inline void gpio_rtc_int_input_init(void)
+{
+    /* RTC_INT uses external pull-up */
+    DDRD  &= (uint8_t)~(1u << RTC_INT_BIT);
+    PORTD &= (uint8_t)~(1u << RTC_INT_BIT);
+}
+
+static inline void gpio_door_sw_input_init(void)
+{
+    /* Door switch uses internal pull-up */
+    DDRD  &= (uint8_t)~(1u << DOOR_SW_BIT);
+    PORTD |=  (uint8_t)(1u << DOOR_SW_BIT);
+}
+
+static inline uint8_t gpio_rtc_int_is_asserted(void)
+{
+    return (PIND & (1u << RTC_INT_BIT)) == 0u;
+}
+
+static inline uint8_t gpio_door_sw_is_asserted(void)
+{
+    return (PIND & (1u << DOOR_SW_BIT)) == 0u;
+}
