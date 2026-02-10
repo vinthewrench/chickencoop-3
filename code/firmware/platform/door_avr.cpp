@@ -14,11 +14,11 @@
  * Updated: 2026-02-03
  */
 
-#include "door_hw.h"
-#include "gpio_avr.h"
-
 #include <avr/io.h>
 #include <stdint.h>
+
+#include "door_hw.h"
+#include "gpio_avr.h"
 
 /* --------------------------------------------------------------------------
  * Internal helpers (masked writes only)

@@ -36,12 +36,24 @@ static void door_set_state(dev_state_t state)
 
 static const char *door_state_string(dev_state_t state)
 {
-    switch (state) {
-    case DEV_STATE_ON:  return "OPEN";
-    case DEV_STATE_OFF: return "CLOSED";
-    default:            return "UNKNOWN";
+    if (state == DEV_STATE_ON)
+        return "OPEN";
+
+    if (state == DEV_STATE_OFF)
+        return "CLOSED";
+
+    /* If unsettled, reflect motion truth */
+    door_motion_t m = door_sm_get_motion();
+
+    switch (m) {
+    case DOOR_MOVING_OPEN:     return "OPENING";
+    case DOOR_MOVING_CLOSE:    return "CLOSING";
+    case DOOR_POSTCLOSE_LOCK:  return "LOCKING";
+    case DOOR_IDLE_UNKNOWN:    return "UNKNOWN";
+    default:                   return "TRANSITION";
     }
 }
+
 
 static void door_init(void)
 {

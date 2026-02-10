@@ -112,6 +112,52 @@ dev_state_t door_sm_get_state(void);
  */
 door_motion_t door_sm_get_motion(void);
 
+
+ /*
+  * door_sm_toggle()
+  *
+  * Purpose:
+  *   Safely reverse or initiate door motion in response to
+  *   a manual control event (e.g., door switch press).
+  *
+  * Behavior:
+  *   - If door is OPEN          → request CLOSE
+  *   - If door is CLOSED        → request OPEN
+  *   - If door is MOVING_OPEN   → stop and reverse to CLOSE
+  *   - If door is MOVING_CLOSE  → stop and reverse to OPEN
+  *   - If state is UNKNOWN      → default to CLOSE (safe assumption)
+  *
+  * Safety:
+  *   - Always unlocks before motion
+  *   - Never drives while locked
+  *   - Reversal includes a brief controlled stop
+  */
+ void door_sm_toggle(void);
+
+/*
+ * Human-readable settled state string.
+ *
+ * Returns:
+ *   "OPEN", "CLOSED", or "UNKNOWN"
+ */
+const char *door_sm_state_string(void);
+
+/*
+ * Human-readable motion state string.
+ *
+ * Returns:
+ *   One of:
+ *     IDLE_OPEN
+ *     IDLE_CLOSED
+ *     MOVING_OPEN
+ *     MOVING_CLOSE
+ *     POSTCLOSE_LOCK
+ *     PREOPEN_UNLOCK
+ *     PRECLOSE_UNLOCK
+ *     UNKNOWN
+ */
+const char *door_sm_motion_string(void);
+
 #ifdef __cplusplus
 }
 #endif

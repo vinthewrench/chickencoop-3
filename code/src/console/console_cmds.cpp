@@ -37,7 +37,6 @@
  #include <string.h>
  #include <stdlib.h>
  #include <ctype.h>
- #include <util/delay.h>
 
 
 #include "console/console_io.h"
@@ -58,11 +57,14 @@
 #include  "door_lock.h"
 #include "devices/devices.h"
 #include "devices/led_state_machine.h"
+#include "devices/door_state_machine.h"
 #include "state_reducer.h"
 #include "system_sleep.h"
 
 
 #ifndef HOST_BUILD
+
+#include <util/delay.h>
 
 
 #define DOOR_SW_BIT     PD3
@@ -885,32 +887,35 @@ static void cmd_set(int argc, char **argv)
      console_puts("OK\n");
  }
 
-static void cmd_door(int argc, char **argv)
-{
-    if (argc != 2) {
-        console_puts("usage: door open|close\n");
-        return;
-    }
+ static void cmd_door(int argc, char **argv)
+ {
+     if (argc != 2) {
+         console_puts("usage: door open|close|toggle|status\n");
+         return;
+     }
 
-    /* Map door → device door on|off */
-    char *dev_argv[3];
-    dev_argv[0] = (char *)"device";
-    dev_argv[1] = (char *)"door";
+     if (!strcmp(argv[1], "open")) {
+         door_sm_request(DEV_STATE_ON);
+     }
+     else if (!strcmp(argv[1], "close")) {
+         door_sm_request(DEV_STATE_OFF);
+     }
+     else if (!strcmp(argv[1], "toggle")) {
+         door_sm_toggle();
+     }
+     else if (!strcmp(argv[1], "status")) {
+         /* no action */
+     }
+     else {
+         console_puts("?\n");
+         return;
+     }
 
-    if (!strcmp(argv[1], "open")) {
-        dev_argv[2] = (char *)"on";
-    }
-    else if (!strcmp(argv[1], "close")) {
-        dev_argv[2] = (char *)"off";
-    }
-    else {
-        console_puts("?\n");
-        return;
-    }
+     mini_printf("door: %s  motion=%s\n",
+                 door_sm_state_string(),
+                 door_sm_motion_string());
+ }
 
-    /* Delegate to canonical implementation */
-    cmd_device(3, dev_argv);
-}
 
 
 // src/console/console_cmds.cpp

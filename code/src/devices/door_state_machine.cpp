@@ -11,6 +11,7 @@
 #include "door_hw.h"
 #include "door_lock.h"
 #include "config.h"
+#include "uptime.h"
 
 /* --------------------------------------------------------------------------
  * Internal state
@@ -22,6 +23,8 @@ static uint32_t      g_motion_t0_ms  = 0;
 
 /* Optional delay before locking (settle time) */
 #define POSTCLOSE_DELAY_MS  250u
+
+#define DOOR_REVERSAL_DELAY_MS  100u
 
 /* --------------------------------------------------------------------------
  * Helpers
@@ -200,4 +203,138 @@ dev_state_t door_sm_get_state(void)
 door_motion_t door_sm_get_motion(void)
 {
     return g_motion;
+}
+
+/*
+ * door_sm_toggle()
+ *
+ * Purpose:
+ *   Safely toggle door direction in response to a manual event
+ *   (e.g., physical door switch press).
+ *
+ * Behavior:
+ *   - If door is IDLE_OPEN       → request CLOSE
+ *   - If door is IDLE_CLOSED     → request OPEN
+ *   - If door is IDLE_UNKNOWN    → default to CLOSE
+ *   - If door is MOVING_OPEN     → stop and reverse to CLOSE
+ *   - If door is MOVING_CLOSE    → stop and reverse to OPEN
+ *   - If door is POSTCLOSE_LOCK  → ignore (lock pulse must complete)
+ *
+ * Safety Rules:
+ *   - Motion is always stopped before reversing direction.
+ *   - A short electrical dead-time is inserted before re-driving
+ *     the motor to prevent H-bridge shoot-through or current slam.
+ *   - Lock release is handled inside door_sm_request().
+ *   - Motion timers are reset before issuing the new request.
+ *
+ * Design Notes:
+ *   - No partial-travel math is performed.
+ *   - Internal actuator limit switches provide end-of-travel protection.
+ *   - State machine remains the single authority for motion control.
+ *
+ * This function does NOT directly manipulate hardware direction pins.
+ * It delegates all drive sequencing to door_sm_request().
+ */
+
+void door_sm_toggle(void)
+{
+    door_motion_t prev = g_motion;
+
+    /* Ignore during lock pulse */
+    if (prev == DOOR_POSTCLOSE_LOCK)
+        return;
+
+    /* Determine desired target */
+    dev_state_t target;
+
+    switch (prev) {
+
+    case DOOR_IDLE_OPEN:
+        target = DEV_STATE_OFF;
+        break;
+
+    case DOOR_IDLE_CLOSED:
+        target = DEV_STATE_ON;
+        break;
+
+    case DOOR_IDLE_UNKNOWN:
+        target = DEV_STATE_OFF;  /* your rule */
+        break;
+
+    case DOOR_MOVING_OPEN:
+        target = DEV_STATE_OFF;
+        break;
+
+    case DOOR_MOVING_CLOSE:
+        target = DEV_STATE_ON;
+        break;
+
+    default:
+        return;
+    }
+
+    /* --- HARD STOP --- */
+    door_stop();
+
+    /* Reset timing */
+    g_motion_t0_ms  = 0;
+    g_settled_state = DEV_STATE_UNKNOWN;
+
+    /* Electrical dead-time */
+    {
+        uint32_t t0 = uptime_millis();
+        while ((uint32_t)(uptime_millis() - t0) < DOOR_REVERSAL_DELAY_MS) {
+            /* allow other ticks */
+        }
+    }
+
+    /* Now issue clean request */
+    door_sm_request(target);
+}
+
+const char *door_sm_state_string(void)
+{
+    switch (g_settled_state) {
+
+    case DEV_STATE_ON:
+        return "OPEN";
+
+    case DEV_STATE_OFF:
+        return "CLOSED";
+
+    case DEV_STATE_UNKNOWN:
+    default:
+        return "UNKNOWN";
+    }
+}
+
+const char *door_sm_motion_string(void)
+{
+    switch (g_motion) {
+
+    case DOOR_IDLE_OPEN:
+        return "IDLE_OPEN";
+
+    case DOOR_IDLE_CLOSED:
+        return "IDLE_CLOSED";
+
+    case DOOR_MOVING_OPEN:
+        return "MOVING_OPEN";
+
+    case DOOR_MOVING_CLOSE:
+        return "MOVING_CLOSE";
+
+    case DOOR_PREOPEN_UNLOCK:
+        return "PREOPEN_UNLOCK";
+
+    case DOOR_PRECLOSE_UNLOCK:
+        return "PRECLOSE_UNLOCK";
+
+    case DOOR_POSTCLOSE_LOCK:
+        return "POSTCLOSE_LOCK";
+
+    case DOOR_IDLE_UNKNOWN:
+    default:
+        return "UNKNOWN";
+    }
 }
