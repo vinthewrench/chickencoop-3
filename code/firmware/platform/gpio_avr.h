@@ -135,6 +135,12 @@
 #define CONFIG_SW_BIT   PC6
 
 
+#define DOOR_SW_BIT     PD3
+
+
+#define RTC_INT_BIT     PD2
+
+
 
 /* --------------------------------------------------------------------------
  * GPIO Initialization
