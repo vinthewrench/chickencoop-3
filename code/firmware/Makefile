@@ -230,13 +230,28 @@ check-fuses:
 #   - DO NOT change fuse values unless hardware or clock source changes.
 #   - JTAG disable is handled in firmware via MCUCR (JTD bit).
 #
+#  Brown-Out Detect (BOD):
+#   - ENABLED at 2.7 V
+#   - Protects EEPROM and SRAM during slow supply collapse
+#   - System is deterministic on brown-out reset
+#
+#   efuse = 0xFD
+#     BODLEVEL2:0 = 101 (2.7 V threshold)
+
 # ------------------------------------------------------------
+# Fuse Configuration
+# ------------------------------------------------------------
+
+LFUSE  := 0xE2
+HFUSE  := 0xD1
+# EFUSE = 0xFD  (BOD 2.7V)
+EFUSE := 0xFD
+
 set-fuses:
 	$(AVRDUDE) -c $(PROGRAMMER) -P $(PORT) -p $(AVRDUDE_MCU) -B 200 \
-		-U lfuse:w:0xE2:m \
-		-U hfuse:w:0xD1:m \
-		-U efuse:w:0xFB:m
-
+	-U lfuse:w:$(LFUSE):m \
+	-U hfuse:w:$(HFUSE):m \
+	-U efuse:w:$(EFUSE):m
 
 # ------------------------------------------------------------
 # Size

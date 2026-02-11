@@ -16,8 +16,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <util/delay.h>
-
 #include <avr/io.h>
+#include <avr/wdt.h>
 #include <avr/interrupt.h>
 
 #include "config.h"
@@ -106,12 +106,46 @@ static inline uint16_t strictly_future_minute(uint16_t now_min,
     return target_min;
 }
 
+
+
+static uint8_t g_reset_flags;
+
+static void reset_cause_capture_early(void)
+{
+    g_reset_flags = MCUSR;
+    MCUSR = 0;          /* clear flags immediately */
+    wdt_disable();      /* if WDT ever enabled, keep boot deterministic */
+
+    /* Disable JTAG immediately (double write required) */
+    MCUCR |= _BV(JTD);
+    MCUCR |= _BV(JTD);
+
+}
+
+static void reset_cause_debug_print(void)
+{
+    /* Optional, but useful while you are validating BOD behavior */
+     if (g_reset_flags & _BV(PORF))  mini_printf("RESET: Power On\n");
+//    if (g_reset_flags & _BV(EXTRF)) mini_printf(" EXT");
+    if (g_reset_flags & _BV(BORF))  mini_printf("RESET: Brown-Out\n");
+    if (g_reset_flags & _BV(WDRF))  mini_printf("RESET: Watchdog\n");
+ }
+
+
 /* ============================================================================
  * MAIN
  * ========================================================================== */
 
 int main(void)
 {
+    reset_cause_capture_early();
+
+     /* If brown-out reset, allow rails + peripherals to settle */
+     if (g_reset_flags & _BV(BORF)) {
+         _delay_ms(50);
+     }
+
+
     uart_init();
 
     if (!i2c_init(100000)) {
@@ -142,7 +176,10 @@ int main(void)
     if (config_sw_state() && !config_consumed) {
 
         config_consumed = true;
+
         console_init();
+
+        reset_cause_debug_print();   /* <-- add this here */
 
         if (!rtc_time_is_set())
             led_state_machine_set(LED_BLINK, LED_RED);

@@ -153,34 +153,40 @@ static int days_in_month(int y, int mo)
  {
      uint32_t days = 0;
 
+     /* Accumulate full years since 2000 */
      for (int year = 2000; year < y; year++) {
          days += is_leap_year(year) ? 366u : 365u;
      }
 
+     /* Accumulate full months of current year */
      for (int month = 1; month < mo; month++) {
          days += (uint32_t)days_in_month(y, month);
      }
 
+     /* Days within current month */
      days += (uint32_t)(d - 1);
 
-     uint32_t seconds = days * 86400u;
-     seconds += (uint32_t)h * 3600u;
-     seconds += (uint32_t)m * 60u;
-     seconds += (uint32_t)s;
+     /* Convert to seconds (local time basis) */
+     int64_t seconds = (int64_t)days * 86400LL;
+     seconds += (int64_t)h * 3600LL;
+     seconds += (int64_t)m * 60LL;
+     seconds += (int64_t)s;
 
-     /* Convert LOCAL → UTC */
+     /* ------------------------------------------------------
+      * Convert LOCAL → UTC
+      * ------------------------------------------------------ */
      int offset = tz_hours;
 
      if (honor_dst && is_us_dst(y, mo, d, h)) {
          offset += 1;
      }
 
-     seconds -= (uint32_t)offset * 3600u;
+     seconds -= (int64_t)offset * 3600LL;
 
      /* Convert 2000-based → Unix epoch (1970-based) */
-     seconds += UNIX_EPOCH_OFFSET_2000;
+     seconds += (int64_t)UNIX_EPOCH_OFFSET_2000;
 
-     return seconds;
+     return (uint32_t)seconds;
  }
 
 /**
