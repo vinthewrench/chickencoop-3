@@ -40,6 +40,7 @@
 
 #include "devices/devices.h"
 #include "devices/led_state_machine.h"
+#include "devices/door_state_machine.h"
 
 #include "platform/gpio_avr.h"
 #include "platform/i2c.h"
@@ -59,10 +60,15 @@
      EIMSK &= (uint8_t)~(1u << INT0);
  }
 
+ static volatile uint8_t g_door_event = 0;
 
  ISR(INT1_vect)
  {
-     EIMSK &= (uint8_t)~(1u << INT1);
+     /* Mask INT1 immediately (one-shot) */
+        EIMSK &= (uint8_t)~(1u << INT1);
+
+        /* Latch event */
+        g_door_event = 1u;
  }
 
 
@@ -171,6 +177,7 @@ int main(void)
     /* ----------------------------------------------------------
      * CONFIG MODE
      * ---------------------------------------------------------- */
+
     static bool config_consumed = false;
 
     if (config_sw_state() && !config_consumed) {
@@ -187,8 +194,37 @@ int main(void)
         while (!console_should_exit()) {
             console_poll();
             device_tick(uptime_millis());
+
+
+            ///-----------
+            /* Re-arm INT1 only when door switch is released */
+            EIFR |= (uint8_t)(1u << INTF1);
+            if (!gpio_door_sw_is_asserted()) {
+                EIMSK |= (uint8_t)(1u << INT1);
+            }
+
+            /* ------------------------------------------------------
+             * Manual Door Switch Event
+             * ------------------------------------------------------ */
+            if (g_door_event) {
+
+                g_door_event = 0u;
+
+                /* Confirm switch still asserted (debounce) */
+                _delay_ms(20);
+
+
+                if (gpio_door_sw_is_asserted()) {
+                   door_sm_toggle();
+                }
+            }
+
+            ///---
+
+
         }
     }
+
 
     /* ----------------------------------------------------------
      * RUN MODE requires valid RTC
@@ -199,6 +235,8 @@ int main(void)
             device_tick(uptime_millis());
         }
     }
+
+
 
     /* Healthy boot pulse */
     led_state_machine_set(LED_ON, LED_GREEN);
@@ -227,7 +265,7 @@ int main(void)
      * ---------------------------------------------------------- */
     for (;;) {
 
-        /* Always clear AF first.
+    /* Always clear AF first.
            This releases INT line high again. */
         rtc_alarm_clear_flag();
 
@@ -240,6 +278,24 @@ int main(void)
         if (!gpio_door_sw_is_asserted()) {
             EIMSK |= (uint8_t)(1u << INT1);
         }
+
+        /* ------------------------------------------------------
+         * Manual Door Switch Event
+         * ------------------------------------------------------ */
+        if (g_door_event) {
+
+            g_door_event = 0u;
+
+            /* Confirm switch still asserted (debounce) */
+            _delay_ms(20);
+
+
+            if (gpio_door_sw_is_asserted()) {
+                mini_printf("DOOR SW\n");
+                door_sm_toggle();
+            }
+        }
+
 
         /* Read time */
         int y, mo, d, h, m, s;
