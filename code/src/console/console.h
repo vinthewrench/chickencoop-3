@@ -45,16 +45,6 @@ void console_resume_timeout(void);
 //   - Firmware (AVR)   → PROGMEM + _P functions
 //   - Host/simulation  → normal RAM string functions
 // -----------------------------------------------------------------------------
-
-#ifdef HOST_BUILD
-    // Host / simulator: normal RAM strings
-    #define console_strlen(s)       strlen(s)
-    #define console_strcmp(a, b)    strcmp((a), (b))
-    #define console_puts_str(s)     console_puts(s)
-
-    // String literals stay in RAM (no special section)
-    #define CONSOLE_STR(s)          (s)
-#else
     // Firmware (AVR): strings live in flash/PROGMEM
     #define console_strlen(s)       strlen_P(s)
     #define console_strcmp(a, b)    strcmp_P((a), (b))   // a=RAM, b=PROGMEM
@@ -62,17 +52,13 @@ void console_resume_timeout(void);
 
     // String literals go to flash via PSTR()
     #define CONSOLE_STR(s)          PSTR(s)
-#endif
-
-// -----------------------------------------------------------------------------
+    // -----------------------------------------------------------------------------
 // Console output helpers (declared here for completeness)
 // These are usually implemented in console_io_avr.c / console_io_host.c
 // -----------------------------------------------------------------------------
 void console_putc(char c);
 void console_puts(const char *s);       // RAM version (host uses this directly)
-#ifdef __AVR__
 void console_puts_P(const char *s);     // PROGMEM version (firmware uses this)
-#endif
 
 int  console_getc(void);                // -1 if no character available
 

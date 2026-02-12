@@ -13,8 +13,6 @@
  * Memory model:
  *  - On AVR builds, all command strings and the command table itself are
  *    placed in flash (PROGMEM) to preserve scarce SRAM.
- *  - On host builds, the same source compiles to normal C strings for
- *    simplicity and debuggability.
  *
  * Implementation strategy:
  *  - An X-macro (CMD_LIST) is used as the single source of truth for
@@ -37,6 +35,7 @@
  #include <string.h>
  #include <stdlib.h>
  #include <ctype.h>
+ #include <util/delay.h>
 
 
 #include "console/console_io.h"
@@ -60,12 +59,6 @@
 #include "devices/door_state_machine.h"
 #include "state_reducer.h"
 #include "system_sleep.h"
-
-
-#ifndef HOST_BUILD
-
-#include <util/delay.h>
-
 
 #define DOOR_SW_BIT     PD3
 #define RTC_INT_BIT     PD2
@@ -96,8 +89,6 @@ static inline uint8_t gpio_door_sw_is_asserted(void)
 }
 
 
-#endif
-
 // -----------------------------------------------------------------------------
 // CONFIG shadow state
 //   - set commands modify RAM shadow only
@@ -123,10 +114,6 @@ static void cmd_lock(int argc, char **argv);
 static void cmd_event(int argc, char **argv);
 static void cmd_sleep(int argc, char **argv);
 
-#ifdef HOST_BUILD
-static void cmd_next(int argc, char **argv);
-static void cmd_reduce(int argc, char **argv);
-#endif
 
 // -----------------------------------------------------------------------------
 // Small helpers
@@ -1327,128 +1314,6 @@ static void cmd_event(int argc, char **argv)
     console_puts("?\n");
 }
 
-/* -------------------------------------------------------------------------- */
-/* Host-only scheduler diagnostics                                             */
-/* -------------------------------------------------------------------------- */
-
-#ifdef HOST_BUILD
-
-static void cmd_next(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-
-    ensure_cfg_loaded();
-
-    uint16_t now = rtc_minutes_since_midnight();
-
-    struct solar_times sol;
-    bool have_sol = compute_today_solar(&sol);
-
-    size_t used = 0;
-    const Event *events = config_events_get(&used);
-
-    size_t idx = 0;
-    uint16_t minute = 0;
-    bool tomorrow = false;
-
-    if (!next_event_today(events,
-                          MAX_EVENTS,
-                          have_sol ? &sol : NULL,
-                          now,
-                          &idx,
-                          &minute,
-                          &tomorrow)) {
-        console_puts("next: none\n");
-        return;
-    }
-
-    int32_t delta =
-        tomorrow ? (1440 - now + minute) : ((int32_t)minute - now);
-
-    mini_printf("next: %02u:%02u (+%ld min) ",
-                minute / 60, minute % 60, (long)delta);
-
-    const Event *ev = &events[idx];
-
-    const char *name = "?";
-    device_name(ev->device_id, &name);
-
-    console_puts(name);
-    console_putc(' ');
-    console_puts(ev->action == ACTION_ON ? "on " : "off ");
-    when_print(&ev->when);
-    console_putc('\n');
-}
-
-static void cmd_reduce(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-
-    ensure_cfg_loaded();
-
-    uint16_t now = rtc_minutes_since_midnight();
-
-    struct solar_times sol;
-    bool have_sol = compute_today_solar(&sol);
-
-    size_t used = 0;
-    const Event *events = config_events_get(&used);
-
-    struct reduced_state rs;
-    state_reducer_run(events,
-                      MAX_EVENTS,
-                      have_sol ? &sol : NULL,
-                      now,
-                      &rs);
-
-    uint8_t id;
-    bool any = false;
-
-    for (bool ok = device_enum_first(&id);
-         ok;
-         ok = device_enum_next(id, &id)) {
-
-        if (!rs.has_action[id])
-            continue;
-
-        const char *name = "?";
-        const char *state = "?";
-
-        device_name(id, &name);
-
-        dev_state_t st =
-            (rs.action[id] == ACTION_ON) ? DEV_STATE_ON : DEV_STATE_OFF;
-
-        device_get_state_string(id, st, &state);
-
-        console_puts(name);
-        console_puts(": ");
-        console_puts(state);
-        console_putc('\n');
-        any = true;
-    }
-
-    if (!any)
-        console_puts("(no scheduled state)\n");
-}
-
-
-#endif /* HOST_BUILD */
-
-#ifdef HOST_BUILD
-
-static void cmd_sleep(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-    console_puts("sleep: not available in HOST\n");
-}
-
-#else /* ! HOST_BUILD */
-/* Wake source state queries */
-
 
 
 static void cmd_sleep(int argc, char **argv)
@@ -1586,8 +1451,6 @@ static void cmd_sleep(int argc, char **argv)
                 woke_rtc ? 1u : 0u,
                 woke_door ? 1u : 0u);
 }
-
-#endif
 
 
 typedef void (*cmd_fn_t)(int argc, char **argv);
@@ -1729,78 +1592,44 @@ typedef struct {
     )
 
 
-/* ------------------------------------------------------------
- * Host-only commands
- * ------------------------------------------------------------ */
-
-#ifdef HOST_BUILD
-#define CMD_SCHED_HOST(X) \
-    X(next, 0, 0, cmd_next, \
-      "Show next scheduled event", \
-      "next\n" \
-      "  Display the next resolved scheduler event (if any)\n" \
-    ) \
-    X(reduce, 0, 0, cmd_reduce, \
-      "Reduce schedule to expected device state", \
-      "reduce\n" \
-      "  Show the scheduler-reduced expected state for each device\n" \
-      "  at the current RTC time. No execution is performed.\n" \
-    )
-#else
-#define CMD_SCHED_HOST(X)
-#endif
 
 /* ------------------------------------------------------------
  * Command string declarations
  * ------------------------------------------------------------ */
+ /* ------------------------------------------------------------
+  * Command string declarations (flash)
+  * ------------------------------------------------------------ */
 
-#ifdef __AVR__
-#include <avr/pgmspace.h>
-#define DECLARE_CMD_STRINGS(name, min, max, fn, short_h, long_h) \
-    static const char cmd_##name##_name[] PROGMEM = #name; \
-    static const char cmd_##name##_short[] PROGMEM = short_h; \
-    static const char cmd_##name##_long[]  PROGMEM = long_h;
-#else
-#define DECLARE_CMD_STRINGS(name, min, max, fn, short_h, long_h) \
-    static const char *cmd_##name##_name  = #name; \
-    static const char *cmd_##name##_short = short_h; \
-    static const char *cmd_##name##_long  = long_h;
-#endif
+ #include <avr/pgmspace.h>
 
-CMD_LIST(DECLARE_CMD_STRINGS)
-CMD_SCHED_HOST(DECLARE_CMD_STRINGS)
+ #define DECLARE_CMD_STRINGS(name, min, max, fn, short_h, long_h) \
+     static const char cmd_##name##_name[]  PROGMEM = #name; \
+     static const char cmd_##name##_short[] PROGMEM = short_h; \
+     static const char cmd_##name##_long[]  PROGMEM = long_h;
 
-/* ------------------------------------------------------------
- * Command table
- * ------------------------------------------------------------ */
+ CMD_LIST(DECLARE_CMD_STRINGS)
 
-#ifdef __AVR__
-#define CMD_PROGMEM PROGMEM
-#else
-#define CMD_PROGMEM
-#endif
+ #undef DECLARE_CMD_STRINGS
 
-static const cmd_entry_t cmd_table[] CMD_PROGMEM = {
-#define MAKE_CMD_ENTRY(name, min, max, fn, short_h, long_h) \
-    { cmd_##name##_name, min, max, fn, cmd_##name##_short, cmd_##name##_long },
-    CMD_LIST(MAKE_CMD_ENTRY)
-    CMD_SCHED_HOST(MAKE_CMD_ENTRY)
-#undef MAKE_CMD_ENTRY
-};
 
-#define CMD_TABLE_LEN (sizeof(cmd_table) / sizeof(cmd_table[0]))
+ /* ------------------------------------------------------------
+  * Command table (flash)
+  * ------------------------------------------------------------ */
 
-#ifdef __AVR__
+ #define MAKE_CMD_ENTRY(name, min, max, fn, short_h, long_h) \
+     { cmd_##name##_name, min, max, fn, cmd_##name##_short, cmd_##name##_long },
+
+ static const cmd_entry_t cmd_table[] PROGMEM = {
+     CMD_LIST(MAKE_CMD_ENTRY)
+ };
+
+ #undef MAKE_CMD_ENTRY
+
+ #define CMD_TABLE_LEN (sizeof(cmd_table) / sizeof(cmd_table[0]))
 static void read_cmd_entry(cmd_entry_t *dst, unsigned idx)
 {
     memcpy_P(dst, &cmd_table[idx], sizeof(cmd_entry_t));
 }
-#else
-static void read_cmd_entry(cmd_entry_t *dst, unsigned idx)
-{
-    *dst = cmd_table[idx];
-}
-#endif
 
 void console_help(int argc, char **argv)
 {

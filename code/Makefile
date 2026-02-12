@@ -1,23 +1,21 @@
+# Root Makefile — Firmware only
 
-.PHONY: host firmware clean
+.PHONY: all firmware clean size isp flash
 
-# Default: build everything
-all: host firmware
-
-host:
-	$(MAKE) -C host
+# Default target
+all: firmware
 
 firmware:
 	$(MAKE) -C firmware
-
-clean:
-	$(MAKE) -C host clean
-	$(MAKE) -C firmware clean
-
-.PHONY: size isp
 
 size:
 	$(MAKE) -C firmware size
 
 isp:
 	$(MAKE) -C firmware isp
+
+clean:
+	$(MAKE) -C firmware clean
+
+flash:
+	$(MAKE) -C firmware flash

@@ -9,12 +9,11 @@
  *  - Line editing (backspace, Ctrl-U)
  *  - Command timeout (auto-exit after inactivity)
  *  - Comment stripping (#...)
- *  - Supports both AVR firmware and host simulation builds
- *
+ *  -
  * Cross-platform notes:
  *  - Uses console_xxx_str() helpers from console.h
  *    → automatic PROGMEM handling on AVR
- *    → normal RAM strings on HOST_BUILD
+ *    →
  *
  * Memory & behavior constraints:
  *  - No dynamic allocation
@@ -43,11 +42,7 @@ extern struct config g_cfg;
 bool want_exit = false;
 
 // Configuration timeout constants
-#ifdef HOST_BUILD
-static const uint32_t CONFIG_TIMEOUT_SEC = 60;      // shorter for development
-#else
 static const uint32_t CONFIG_TIMEOUT_SEC = 300;     // 5 minutes on real hardware
-#endif
 
 // Input buffer
 #define MAX_LINE 64
