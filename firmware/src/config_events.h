@@ -22,7 +22,7 @@
 
 #include "events.h"
 
-#define MAX_EVENTS 8
+#define MAX_EVENTS 16
 /* Accessor
  * Returns pointer to config-backed sparse event table (size MAX_EVENTS).
  * If count != NULL, *count is set to number of USED slots.

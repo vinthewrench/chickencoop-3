@@ -10,7 +10,19 @@
  *  - Self-describing configuration
  *  - Identical layout on host and AVR
  *
- * Updated: 2026-01-05
+ * Time Model (UPDATED):
+ *  - RTC runs in UTC.
+ *  - Scheduler runs in UTC.
+ *  - Solar scheduling uses UTC (tz = 0 when calling solar_compute).
+ *
+ *  - tz and honor_dst are for console/UI presentation only:
+ *      display LOCAL time
+ *      accept LOCAL time input (convert to UTC before writing RTC)
+ *
+ *  - rtc_set_epoch is stored in UTC epoch seconds (2000 base) and is used
+ *    only for drift tracking (time since last manual set).
+ *
+ * Updated: 2026-02-16
  */
 
 #pragma once
@@ -32,17 +44,40 @@ struct config {
     /* Location / time */
     int32_t latitude_e4;        /* degrees * 10000 */
     int32_t longitude_e4;       /* degrees * 10000 */
-    int32_t tz;                 /* minutes offset from UTC */
+
+    /*
+     * Timezone offset from UTC in HOURS.
+     *
+     * Example:
+     *   Arkansas (CST) = -6
+     *
+     * This value is used for console/UI conversion only.
+     * It must NOT affect scheduler or RTC storage.
+     */
+    int32_t tz;
+
+    /*
+     * Apply US DST rule for console/UI presentation only.
+     *
+     * Must NOT affect scheduler or RTC storage.
+     */
     uint8_t honor_dst;          /* 0 or 1 */
-    uint32_t rtc_set_epoch;     /* last time we set the clock */
+
+    /*
+     * last time we set the clock
+     *
+     * Stored as UTC epoch seconds with 2000-01-01 base (per rtc_get_epoch()).
+     * Used only for drift tracking.
+     */
+    uint32_t rtc_set_epoch;
 
     /* Mechanical timing (physical constants) */
     uint16_t door_travel_ms;    /* full open or close time */
     uint16_t lock_pulse_ms;     /* solenoid energize duration */
-    uint16_t door_settle_ms;        /* delay after close before locking */
-    uint16_t lock_settle_ms;       /* time after unlock before motion */
+    uint16_t door_settle_ms;    /* delay after close before locking */
+    uint16_t lock_settle_ms;    /* time after unlock before motion */
 
-     uint8_t _pad1[2];           /* align events */
+    uint8_t _pad1[2];           /* align events */
 
     /* Scheduler intent */
     struct Event events[MAX_EVENTS];

@@ -323,27 +323,26 @@ static bool compute_today_solar(struct solar_times *out)
 
     int y, mo, d, h;
 
-    /* RTC is the sole authority */
     if (!rtc_time_is_set())
         return false;
 
+    /* RTC now returns UTC */
     rtc_get_time(&y, &mo, &d, &h, NULL, NULL);
 
     double lat = (double)g_cfg.latitude_e4 / 10000.0;
     double lon = (double)g_cfg.longitude_e4 / 10000.0;
 
-    int tz = g_cfg.tz;
-    if (g_cfg.honor_dst && is_us_dst(y, mo, d, h)) {
-        tz += 1;
-    }
-
+    /*
+     * Scheduling must be DST-invariant.
+     * Always request solar times in UTC.
+     */
     return solar_compute(
         y,
         mo,
         d,
         lat,
         lon,
-        (int8_t)tz,
+        0,
         out
     );
 }
@@ -367,16 +366,57 @@ static void cmd_time(int, char **)
 {
     int y, mo, d, h, m, s;
 
-    /* Otherwise fall back to RTC */
     if (!rtc_time_is_set()) {
         console_puts("TIME: NOT SET\n");
         return;
     }
 
+    /* Read UTC */
     rtc_get_time(&y, &mo, &d, &h, &m, &s);
-    print_datetime_ampm(y, mo, d, h, m, s);
-}
 
+    /* Convert UTC → LOCAL for display */
+    int tz = g_cfg.tz;
+    int dst = 0;
+
+    if (g_cfg.honor_dst && is_us_dst(y, mo, d, h))
+        dst = 1;
+
+    int total = tz + dst;
+
+    /* Apply offset */
+    int hh = h + total;
+    int dd = d;
+    int mm2 = mo;
+    int yy = y;
+
+    while (hh < 0) {
+        hh += 24;
+        dd--;
+        if (dd < 1) {
+            mm2--;
+            if (mm2 < 1) {
+                mm2 = 12;
+                yy--;
+            }
+            dd = days_in_month(yy, mm2);
+        }
+    }
+
+    while (hh >= 24) {
+        hh -= 24;
+        dd++;
+        if (dd > days_in_month(yy, mm2)) {
+            dd = 1;
+            mm2++;
+            if (mm2 > 12) {
+                mm2 = 1;
+                yy++;
+            }
+        }
+    }
+
+    print_datetime_ampm(yy, mm2, dd, hh, m, s);
+}
 
 
 static void cmd_solar(int argc, char **argv)
@@ -394,22 +434,34 @@ static void cmd_solar(int argc, char **argv)
     int y, mo, d, h;
     rtc_get_time(&y, &mo, &d, &h, NULL, NULL);
 
-    int effective_tz = g_cfg.tz;
-    if (g_cfg.honor_dst && is_us_dst(y, mo, d, h))
-        effective_tz += 1;
-
     float lat = g_cfg.latitude_e4 * 1e-4f;
     float lon = g_cfg.longitude_e4 * 1e-4f;
 
     struct solar_times sol;
+
+    /* Request solar in UTC */
     if (!solar_compute(y, mo, d,
                        lat,
                        lon,
-                       effective_tz,
+                       0,
                        &sol)) {
         console_puts("SOLAR: UNAVAILABLE\n");
         return;
     }
+
+    /* Convert to LOCAL minutes for display */
+    int tz = g_cfg.tz;
+    int dst = 0;
+    if (g_cfg.honor_dst && is_us_dst(y, mo, d, h))
+        dst = 1;
+
+    int total = tz + dst;
+    int offset_min = total * 60;
+
+    sol.sunrise_std += offset_min;
+    sol.sunset_std  += offset_min;
+    sol.sunrise_civ += offset_min;
+    sol.sunset_civ  += offset_min;
 
     console_puts("           Rise        Set\n");
 
@@ -426,6 +478,7 @@ static void cmd_solar(int argc, char **argv)
     console_putc('\n');
 }
 
+
 static void cmd_schedule(int argc, char **argv)
 {
     (void)argc;
@@ -433,52 +486,120 @@ static void cmd_schedule(int argc, char **argv)
 
     ensure_cfg_loaded();
 
-    /* ----- Date / time ----- */
-    int y, mo, d, h, m, s;
-
     if (!rtc_time_is_set()) {
         console_puts("TIME: NOT SET\n");
         return;
     }
 
+    /* ------------------------------------------------------------------
+     * Read UTC from RTC
+     * ------------------------------------------------------------------ */
+    int y, mo, d, h, m, s;
     rtc_get_time(&y, &mo, &d, &h, &m, &s);
 
-    /* ----- Header ----- */
-    mini_printf("Today: %04d-%02d-%02d\n\n", y, mo, d);
+    /* Convert UTC → LOCAL */
+    int tz = g_cfg.tz;
+    int dst = 0;
+
+    if (g_cfg.honor_dst && is_us_dst(y, mo, d, h))
+        dst = 1;
+
+    int total = tz + dst;
+
+    int ly = y;
+    int lmo = mo;
+    int ld = d;
+    int lh = h + total;
+
+    while (lh < 0) {
+        lh += 24;
+        ld--;
+        if (ld < 1) {
+            lmo--;
+            if (lmo < 1) {
+                lmo = 12;
+                ly--;
+            }
+            ld = days_in_month(ly, lmo);
+        }
+    }
+
+    while (lh >= 24) {
+        lh -= 24;
+        ld++;
+        if (ld > days_in_month(ly, lmo)) {
+            ld = 1;
+            lmo++;
+            if (lmo > 12) {
+                lmo = 1;
+                ly++;
+            }
+        }
+    }
+
+    /* ------------------------------------------------------------------
+     * Header (LOCAL date)
+     * ------------------------------------------------------------------ */
+    mini_printf("Today: %04d-%02d-%02d\n\n", ly, lmo, ld);
 
     mini_printf("lat/long  : %L, %L\n",
                 g_cfg.latitude_e4,
                 g_cfg.longitude_e4);
 
-     mini_printf("TZ        : %d (DST ", g_cfg.tz);
-     mini_printf("%s", g_cfg.honor_dst ? "ON" : "OFF");
-     mini_printf(")\n\n");
+    mini_printf("TZ        : %d (DST %s)\n\n",
+                g_cfg.tz,
+                g_cfg.honor_dst ? "ON" : "OFF");
 
-    /* ----- Solar ----- */
+    /* ------------------------------------------------------------------
+     * Solar (compute UTC, print LOCAL)
+     * ------------------------------------------------------------------ */
+
     struct solar_times sol;
     bool have_sol = compute_today_solar(&sol);
 
     if (have_sol) {
+
+        int offset_min = total * 60;
+
+        int sr = sol.sunrise_std + offset_min;
+        int ss2 = sol.sunset_std + offset_min;
+        int cr = sol.sunrise_civ + offset_min;
+        int cs = sol.sunset_civ + offset_min;
+
+        while (sr < 0) sr += 1440;
+        while (sr >= 1440) sr -= 1440;
+        while (ss2 < 0) ss2 += 1440;
+        while (ss2 >= 1440) ss2 -= 1440;
+        while (cr < 0) cr += 1440;
+        while (cr >= 1440) cr -= 1440;
+        while (cs < 0) cs += 1440;
+        while (cs >= 1440) cs -= 1440;
+
         console_puts("Solar      Rise        Set\n");
+
         console_puts("Actual     ");
-        print_hhmm(sol.sunrise_std);
+        print_hhmm(sr);
         console_puts("    ");
-        print_hhmm(sol.sunset_std);
+        print_hhmm(ss2);
         console_putc('\n');
 
         console_puts("Civil      ");
-        print_hhmm(sol.sunrise_civ);
+        print_hhmm(cr);
         console_puts("    ");
-        print_hhmm(sol.sunset_civ);
+        print_hhmm(cs);
         console_putc('\n');
-    } else {
+    }
+    else {
         console_puts("Solar: UNAVAILABLE\n");
     }
 
     console_putc('\n');
     console_puts("Events:\n");
 
-    /* ----- Events ----- */
+    /* ------------------------------------------------------------------
+     * Events (resolve UTC, print LOCAL)
+     * ------------------------------------------------------------------ */
+
     size_t used = 0;
     const Event *events = config_events_get(&used);
 
@@ -496,15 +617,18 @@ static void cmd_schedule(int argc, char **argv)
     size_t rc = 0;
 
     for (size_t i = 0; i < MAX_EVENTS; i++) {
+
         const Event *ev = &events[i];
         if (ev->refnum == 0)
             continue;
 
         uint16_t minute;
-        if (!resolve_when(&ev->when, have_sol ? &sol : NULL, &minute))
+        if (!resolve_when(&ev->when,
+                          have_sol ? &sol : NULL,
+                          &minute))
             continue;
 
-        rows[rc].minute = minute;
+        rows[rc].minute = minute; /* UTC */
         rows[rc].ev     = ev;
         rc++;
     }
@@ -514,7 +638,7 @@ static void cmd_schedule(int argc, char **argv)
         return;
     }
 
-    /* sort by time */
+    /* Sort UTC */
     for (size_t i = 0; i + 1 < rc; i++) {
         for (size_t j = i + 1; j < rc; j++) {
             if (rows[j].minute < rows[i].minute) {
@@ -525,10 +649,18 @@ static void cmd_schedule(int argc, char **argv)
         }
     }
 
-    /* print rows */
+    int offset_min = total * 60;
+
     for (size_t i = 0; i < rc; i++) {
+
         const Event *ev = rows[i].ev;
-        uint16_t min = rows[i].minute;
+        int local_min = (int)rows[i].minute + offset_min;
+
+        while (local_min < 0)
+            local_min += 1440;
+
+        while (local_min >= 1440)
+            local_min -= 1440;
 
         const char *dev = "?";
         const char *state = "?";
@@ -541,8 +673,8 @@ static void cmd_schedule(int argc, char **argv)
         device_get_state_string(ev->device_id, st, &state);
 
         mini_printf("%02u:%02u  ",
-            (unsigned)(min / 60),
-            (unsigned)(min % 60));
+            (unsigned)(local_min / 60),
+            (unsigned)(local_min % 60));
 
         print_padded(dev,   8);
         print_padded(state, 8);
@@ -551,10 +683,6 @@ static void cmd_schedule(int argc, char **argv)
         console_putc('\n');
     }
 }
-
-
-// src/console/console_cmds.cpp
-// src/console/console_cmds.cpp
 
 static void cmd_set(int argc, char **argv)
 {
@@ -602,51 +730,71 @@ static void cmd_set(int argc, char **argv)
      * Commits immediately to RTC using existing RTC date
      * Also records epoch at time of set (UTC-normalized)
      * -------------------------------------------------- */
-    if (!strcmp(argv[1], "time") && argc == 3) {
+     if (!strcmp(argv[1], "time") && argc == 3) {
 
-        int hh = 0, mi = 0, ss = 0;
-        int y, mo, d;
+         int hh = 0, mi = 0, ss = 0;
+         int y, mo, d;
 
-        if (parse_time_hms(argv[2], &hh, &mi, &ss)) {
-            /* HH:MM:SS */
-        } else if (parse_time_hm(argv[2], &hh, &mi)) {
-            ss = 0;
-        } else {
-            console_puts("ERROR\n");
-            return;
-        }
+         if (parse_time_hms(argv[2], &hh, &mi, &ss)) {
+         } else if (parse_time_hm(argv[2], &hh, &mi)) {
+             ss = 0;
+         } else {
+             console_puts("ERROR\n");
+             return;
+         }
 
-        if (!rtc_time_is_set()) {
-            console_puts("ERROR: RTC DATE NOT SET\n");
-            return;
-        }
+         if (!rtc_time_is_set()) {
+             console_puts("ERROR: RTC DATE NOT SET\n");
+             return;
+         }
 
-        /* Preserve existing RTC date */
-        rtc_get_time(&y, &mo, &d, NULL, NULL, NULL);
+         /* Existing date from RTC (UTC date) */
+         rtc_get_time(&y, &mo, &d, NULL, NULL, NULL);
 
-        /* Program RTC */
-        if (!rtc_set_time(y, mo, d, hh, mi, ss)) {
-            console_puts("ERROR: RTC SET FAILED\n");
-            return;
-        }
+         /*
+          * User entered LOCAL time.
+          * Convert LOCAL → UTC before programming RTC.
+          */
+         int tz = g_cfg.tz;
+         int dst = 0;
 
-        /* Record UTC epoch at moment of set */
-        g_cfg.rtc_set_epoch =
-            rtc_epoch_from_ymdhms(
-                y, mo, d,
-                hh, mi, ss,
-                g_cfg.tz,
-                g_cfg.honor_dst
-            );
+         if (g_cfg.honor_dst && is_us_dst(y, mo, d, hh))
+             dst = 1;
 
-        /* Immediately persist drift baseline */
-        config_save(&g_cfg);
+         int total = tz + dst;
 
-        g_cfg_dirty = false;
+         int utc_h = hh - total;
 
-        console_puts("OK\n");
-        return;
-    }
+         while (utc_h < 0) {
+             utc_h += 24;
+             d--;
+         }
+
+         while (utc_h >= 24) {
+             utc_h -= 24;
+             d++;
+         }
+
+         if (!rtc_set_time(y, mo, d, utc_h, mi, ss)) {
+             console_puts("ERROR: RTC SET FAILED\n");
+             return;
+         }
+
+         /* Drift baseline is pure UTC */
+         g_cfg.rtc_set_epoch =
+             rtc_epoch_from_ymdhms(
+                 y, mo, d,
+                 utc_h, mi, ss,
+                 0,
+                 false
+             );
+
+         config_save(&g_cfg);
+         g_cfg_dirty = false;
+
+         console_puts("OK\n");
+         return;
+     }
 
     /* --------------------------------------------------
      * set lat +/-DD.DDDD
@@ -943,53 +1091,100 @@ static void cmd_rtc(int argc, char **argv)
     }
 
     int y, mo, d, h, m, s;
-    rtc_get_time(&y, &mo, &d, &h, &m, &s);
-    uint32_t epoch = rtc_get_epoch();
+    rtc_get_time(&y, &mo, &d, &h, &m, &s);   /* UTC */
+
+    uint32_t epoch = rtc_get_epoch();        /* UTC epoch */
 
     console_puts("RTC: VALID\n");
-    mini_printf("date: %04d-%02d-%02d\n", y, mo, d);
-    mini_printf("time: %02d:%02d:%02d\n", h, m, s);
-    mini_printf("epoch: %lu\n", (unsigned long)epoch);
-
-    uint16_t mins = rtc_minutes_since_midnight();
-    mini_printf("minutes_since_midnight: %u\n", (unsigned)mins);
 
     /* --------------------------------------------------
-        * Drift measurement
-        * -------------------------------------------------- */
-       if (g_cfg.rtc_set_epoch == 0) {
-           console_puts("since_set: UNKNOWN\n");
-           return;
-       }
+     * Raw UTC (hardware truth)
+     * -------------------------------------------------- */
+    mini_printf("utc date : %04d-%02d-%02d\n", y, mo, d);
+    mini_printf("utc time : %02d:%02d:%02d\n", h, m, s);
+    mini_printf("epoch    : %lu\n", (unsigned long)epoch);
 
-       uint32_t delta;
+    uint16_t mins = rtc_minutes_since_midnight();
+    mini_printf("utc minute_of_day: %u\n", (unsigned)mins);
 
-       if (epoch >= g_cfg.rtc_set_epoch) {
-           delta = epoch - g_cfg.rtc_set_epoch;
-       } else {
-           /* Should never happen, but stay deterministic */
-           delta = 0;
-       }
+    /* --------------------------------------------------
+     * Derived LOCAL time (presentation only)
+     * -------------------------------------------------- */
 
-       uint32_t days  = delta / 86400u;
-       delta %= 86400u;
+    int tz = g_cfg.tz;
+    int dst = 0;
 
-       uint32_t hours = delta / 3600u;
-       delta %= 3600u;
+    if (g_cfg.honor_dst && is_us_dst(y, mo, d, h))
+        dst = 1;
 
-       uint32_t mins2 = delta / 60u;
-       uint32_t secs  = delta % 60u;
+    int total = tz + dst;
 
-       mini_printf(
-           "since_set: %lu sec (%lu days %02lu:%02lu:%02lu)\n",
-           (unsigned long)(epoch - g_cfg.rtc_set_epoch),
-           (unsigned long)days,
-           (unsigned long)hours,
-           (unsigned long)mins2,
-           (unsigned long)secs
-       );
+    int ly = y;
+    int lmo = mo;
+    int ld = d;
+    int lh = h + total;
+
+    while (lh < 0) {
+        lh += 24;
+        ld--;
+        if (ld < 1) {
+            lmo--;
+            if (lmo < 1) {
+                lmo = 12;
+                ly--;
+            }
+            ld = days_in_month(ly, lmo);
+        }
+    }
+
+    while (lh >= 24) {
+        lh -= 24;
+        ld++;
+        if (ld > days_in_month(ly, lmo)) {
+            ld = 1;
+            lmo++;
+            if (lmo > 12) {
+                lmo = 1;
+                ly++;
+            }
+        }
+    }
+
+    mini_printf("local date: %04d-%02d-%02d\n", ly, lmo, ld);
+    mini_printf("local time: %02d:%02d:%02d\n", lh, m, s);
+
+    /* --------------------------------------------------
+     * Drift measurement (UTC basis only)
+     * -------------------------------------------------- */
+
+    if (g_cfg.rtc_set_epoch == 0) {
+        console_puts("since_set: UNKNOWN\n");
+        return;
+    }
+
+    uint32_t delta = 0;
+
+    if (epoch >= g_cfg.rtc_set_epoch)
+        delta = epoch - g_cfg.rtc_set_epoch;
+
+    uint32_t days  = delta / 86400u;
+    delta %= 86400u;
+
+    uint32_t hours = delta / 3600u;
+    delta %= 3600u;
+
+    uint32_t mins2 = delta / 60u;
+    uint32_t secs  = delta % 60u;
+
+    mini_printf(
+        "since_set: %lu sec (%lu days %02lu:%02lu:%02lu)\n",
+        (unsigned long)(epoch - g_cfg.rtc_set_epoch),
+        (unsigned long)days,
+        (unsigned long)hours,
+        (unsigned long)mins2,
+        (unsigned long)secs
+    );
 }
-
 
 static void cmd_config(int, char **)
 {
@@ -1111,10 +1306,35 @@ static void cmd_event(int argc, char **argv)
             }
         }
 
-         /* Print */
+        /* Print */
         for (size_t i = 0; i < rcount; i++) {
+
             const Event *ev = r[i].ev;
-            uint16_t minute = r[i].minute;
+            uint16_t utc_minute = r[i].minute;
+
+            /* ---- Convert UTC minute → LOCAL minute ---- */
+
+            int tz = g_cfg.tz;
+            int dst = 0;
+
+            int y, mo, d, h;
+            rtc_get_time(&y, &mo, &d, &h, NULL, NULL);
+
+            if (g_cfg.honor_dst && is_us_dst(y, mo, d, h))
+                dst = 1;
+
+            int total = tz + dst;
+            int offset_min = total * 60;
+
+            int local_minute = (int)utc_minute + offset_min;
+
+            while (local_minute < 0)
+                local_minute += 1440;
+
+            while (local_minute >= 1440)
+                local_minute -= 1440;
+
+            /* ---- Device/state ---- */
 
             const char *dev_name = "?";
             const char *state    = "?";
@@ -1126,10 +1346,11 @@ static void cmd_event(int argc, char **argv)
 
             device_get_state_string(ev->device_id, st, &state);
 
-            /* Time and stable refnum */
+            /* ---- Print LOCAL time ---- */
+
             mini_printf("%02u:%02u  #",
-                        (unsigned)(minute / 60),
-                        (unsigned)(minute % 60));
+                        (unsigned)(local_minute / 60),
+                        (unsigned)(local_minute % 60));
 
             print_uint_padded(ev->refnum, 3);
             console_puts("  ");
@@ -1226,8 +1447,31 @@ static void cmd_event(int argc, char **argv)
          if (argc == 5) {
              int hh, mm;
              if (parse_time_hm(argv[4], &hh, &mm)) {
+
+                 /* Convert LOCAL → UTC */
+                 int tz = g_cfg.tz;
+                 int dst = 0;
+
+                 int y, mo, d, h;
+                 rtc_get_time(&y, &mo, &d, &h, NULL, NULL);
+
+                 if (g_cfg.honor_dst && is_us_dst(y, mo, d, hh))
+                     dst = 1;
+
+                 int total = tz + dst;
+
+                 int utc_h = hh - total;
+                 int utc_min = utc_h * 60 + mm;
+
+                 while (utc_min < 0)
+                     utc_min += 1440;
+
+                 while (utc_min >= 1440)
+                     utc_min -= 1440;
+
                  ev.when.ref = REF_MIDNIGHT;
-                 ev.when.offset_minutes = (int16_t)(hh * 60 + mm);
+                 ev.when.offset_minutes = (int16_t)utc_min;
+
                  goto add_event;
              }
          }
@@ -1239,8 +1483,30 @@ static void cmd_event(int argc, char **argv)
                  console_puts("ERROR TIME\n");
                  return;
              }
+
+             int tz = g_cfg.tz;
+             int dst = 0;
+
+             int y, mo, d, h;
+             rtc_get_time(&y, &mo, &d, &h, NULL, NULL);
+
+             if (g_cfg.honor_dst && is_us_dst(y, mo, d, hh))
+                 dst = 1;
+
+             int total = tz + dst;
+
+             int utc_h = hh - total;
+             int utc_min = utc_h * 60 + mm;
+
+             while (utc_min < 0)
+                 utc_min += 1440;
+
+             while (utc_min >= 1440)
+                 utc_min -= 1440;
+
              ev.when.ref = REF_MIDNIGHT;
-             ev.when.offset_minutes = (int16_t)(hh * 60 + mm);
+             ev.when.offset_minutes = (int16_t)utc_min;
+
              goto add_event;
          }
 

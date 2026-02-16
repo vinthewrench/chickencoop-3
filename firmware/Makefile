@@ -213,8 +213,7 @@ check-fuses:
 
 size: $(PROJECT).elf
 	@echo "---- AVR Memory Usage ----"
-	@$(SIZE) -C --mcu=$(MCU) "$<"
-
+	@$(SIZE) --format=avr --mcu=$(MCU) "$<"
 
 # ------------------------------------------------------------
 # Cleanup
@@ -255,4 +254,4 @@ static:
 # ------------------------------------------------------------
 
 
-.PHONY: all clean flash flash-part set-fuses check-fuses size static
+.PHONY: all clean flash flash-part set-fuses check-fuses size static size

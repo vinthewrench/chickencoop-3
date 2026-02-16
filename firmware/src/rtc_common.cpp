@@ -9,9 +9,10 @@
  *  - Contain no hardware-specific logic
  *  - Behave identically on host and firmware builds
  *
- * Time Model:
- *  - RTC stores LOCAL civil time.
- *  - Epoch functions convert LOCAL time → UTC.
+ * Time Model (UPDATED):
+ *  - RTC stores UTC.
+ *  - Scheduler runs in UTC.
+ *  - Epoch functions operate directly on UTC.
  *  - Epoch base is 2000-01-01 00:00:00 UTC.
  *
  * Notes:
@@ -19,7 +20,7 @@
  *  - Deterministic behavior
  *  - Uses rtc.h API only
  *
- * Updated: 2026-02-06
+ * Updated: 2026-02-16
  */
 
 #include <stdint.h>
@@ -41,6 +42,9 @@
  *  - Prevents corrupt RTC data from propagating into scheduler logic.
  *
  * No hardware access beyond rtc_get_time().
+ *
+ * Time basis:
+ *  - Derived from UTC stored in RTC.
  */
 uint16_t rtc_minutes_since_midnight(void)
 {
@@ -68,7 +72,7 @@ uint16_t rtc_minutes_since_midnight(void)
  * Converts minute-of-day to HH:MM and arms the RTC alarm.
  *
  * Notes:
- *  - Alarm is assumed to be for TODAY.
+ *  - Alarm is assumed to be for TODAY (UTC basis).
  *  - Caller must ensure minute_of_day is in the future.
  *  - Does not handle wrap-to-tomorrow logic.
  *  - Clears any pending alarm flag before arming.
@@ -114,8 +118,19 @@ static int days_in_month(int y, int mo)
  * Epoch Conversion
  * -------------------------------------------------------------------------- */
 
+/*
+ * Difference between:
+ *   1970-01-01 00:00:00 UTC
+ *   2000-01-01 00:00:00 UTC
+ *
+ * Used to convert 2000-based day accumulation
+ * into Unix epoch (1970-based).
+ */
+#define UNIX_EPOCH_OFFSET_2000 946684800UL
+
+
 /**
- * @brief Convert calendar date/time to UTC epoch seconds.
+ * @brief Convert calendar date/time to Unix epoch seconds (UTC).
  *
  * @param y          Year (full year, e.g. 2026)
  * @param mo         Month [1..12]
@@ -123,82 +138,76 @@ static int days_in_month(int y, int mo)
  * @param h          Hour [0..23]
  * @param m          Minute [0..59]
  * @param s          Second [0..59]
- * @param tz_hours   Timezone offset from UTC in hours
- * @param honor_dst  If true, apply US DST rules via is_us_dst()
+ * @param tz_hours   Ignored (UTC-only model)
+ * @param honor_dst  Ignored (UTC-only model)
  *
- * @return Seconds since 2000-01-01 00:00:00 UTC.
+ * @return Seconds since 1970-01-01 00:00:00 UTC (Unix epoch).
  *
  * Description:
- *  - Treats input time as LOCAL civil time.
+ *  - Treats input time as UTC.
  *  - Converts calendar date to days since 2000-01-01.
  *  - Converts HH:MM:SS to seconds-of-day.
- *  - Applies timezone offset and optional DST correction.
- *  - Returns normalized UTC seconds.
+ *  - Adds constant offset to produce true Unix epoch.
+ *  - No timezone or DST adjustments are applied.
+ *
+ * Time Model:
+ *  - RTC stores UTC.
+ *  - Scheduler operates in UTC.
+ *  - Epoch functions operate in UTC.
  *
  * Design Constraints:
  *  - Deterministic, no hardware access.
  *  - Valid for years >= 2000.
- *  - 32-bit safe through year 2136.
+ *  - 32-bit safe until year 2106 (Unix rollover limit).
  *  - Caller must supply valid calendar values.
  */
+uint32_t rtc_epoch_from_ymdhms(
+    int y, int mo, int d,
+    int h, int m, int s,
+    int tz_hours,
+    bool honor_dst
+)
+{
+    (void)tz_hours;
+    (void)honor_dst;
 
- #define UNIX_EPOCH_OFFSET_2000 946684800UL  /* seconds from 1970 to 2000 */
+    uint32_t days = 0;
 
- uint32_t rtc_epoch_from_ymdhms(
-     int y, int mo, int d,
-     int h, int m, int s,
-     int tz_hours,
-     bool honor_dst
- )
- {
-     uint32_t days = 0;
+    /* Accumulate full years since 2000 */
+    for (int year = 2000; year < y; year++) {
+        days += is_leap_year(year) ? 366u : 365u;
+    }
 
-     /* Accumulate full years since 2000 */
-     for (int year = 2000; year < y; year++) {
-         days += is_leap_year(year) ? 366u : 365u;
-     }
+    /* Accumulate full months of current year */
+    for (int month = 1; month < mo; month++) {
+        days += (uint32_t)days_in_month(y, month);
+    }
 
-     /* Accumulate full months of current year */
-     for (int month = 1; month < mo; month++) {
-         days += (uint32_t)days_in_month(y, month);
-     }
+    /* Days within current month */
+    days += (uint32_t)(d - 1);
 
-     /* Days within current month */
-     days += (uint32_t)(d - 1);
+    /* Convert to seconds (UTC basis, 2000-origin) */
+    uint32_t seconds = days * 86400u;
+    seconds += (uint32_t)h * 3600u;
+    seconds += (uint32_t)m * 60u;
+    seconds += (uint32_t)s;
 
-     /* Convert to seconds (local time basis) */
-     int64_t seconds = (int64_t)days * 86400LL;
-     seconds += (int64_t)h * 3600LL;
-     seconds += (int64_t)m * 60LL;
-     seconds += (int64_t)s;
+    /* Convert 2000-based → Unix epoch (1970-based) */
+    seconds += UNIX_EPOCH_OFFSET_2000;
 
-     /* ------------------------------------------------------
-      * Convert LOCAL → UTC
-      * ------------------------------------------------------ */
-     int offset = tz_hours;
+    return seconds;
+}
 
-     if (honor_dst && is_us_dst(y, mo, d, h)) {
-         offset += 1;
-     }
-
-     seconds -= (int64_t)offset * 3600LL;
-
-     /* Convert 2000-based → Unix epoch (1970-based) */
-     seconds += (int64_t)UNIX_EPOCH_OFFSET_2000;
-
-     return (uint32_t)seconds;
- }
 
 /**
- * @brief Get current epoch derived from RTC.
+ * @brief Get current Unix epoch derived from RTC.
  *
- * @return Seconds since 2000-01-01 00:00:00 UTC.
+ * @return Seconds since 1970-01-01 00:00:00 UTC.
  *
  * Behavior:
- *  - Reads current LOCAL time from RTC.
- *  - Applies configured timezone (g_cfg.tz).
- *  - Applies DST if enabled (g_cfg.honor_dst).
- *  - Returns UTC-normalized seconds.
+ *  - Reads current UTC time from RTC.
+ *  - Performs no timezone or DST adjustments.
+ *  - Returns Unix epoch seconds.
  *
  * Returns 0 if RTC is not set.
  */
@@ -211,8 +220,9 @@ uint32_t rtc_get_epoch(void)
     rtc_get_time(&y, &mo, &d, &h, &m, &s);
 
     return rtc_epoch_from_ymdhms(
-        y, mo, d, h, m, s,
-        g_cfg.tz,
-        g_cfg.honor_dst
+        y, mo, d,
+        h, m, s,
+        0,
+        false
     );
 }

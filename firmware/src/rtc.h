@@ -5,14 +5,15 @@
  * Purpose: RTC abstraction (host + firmware)
  *
  * Responsibilities:
- *  - Maintain wall-clock date/time (LOCAL civil time)
+ *  - Maintain wall-clock date/time (UTC internally)
  *  - Provide deterministic access to current time
  *  - Support alarm scheduling for low-power operation
- *  - Provide UTC-normalized epoch helpers
+ *  - Provide epoch helpers
  *
  * Time Model:
- *  - RTC stores LOCAL time.
- *  - Epoch helpers convert LOCAL → UTC.
+ *  - RTC stores UTC time.
+ *  - All scheduling operates in UTC.
+ *  - Timezone and DST logic exist ONLY in console/UI layer.
  *  - Epoch base is 2000-01-01 00:00:00 UTC.
  *
  * Notes:
@@ -24,7 +25,7 @@
  *  - Chicken Coop Controller V3.0
  *  - RTC: NXP PCF8523
  *
- * Updated: 2026-02-06
+ * Updated: 2026-02-16
  */
 
 #pragma once
@@ -74,70 +75,25 @@ bool rtc_time_is_set(void);
 /**
  * @brief Perform a blocking RTC integrity validation at system startup.
  *
- * ============================================================================
- * PURPOSE
- * ============================================================================
+ * This performs full physical validation of the PCF8523.
+ * Must be called once at boot only.
  *
- * This function performs a full physical validation of the PCF8523 RTC.
- * It is intended to be called ONCE during system boot.
- *
- * This is NOT a lightweight status check.
- *
- * ============================================================================
- * WHAT IT VERIFIES
- * ============================================================================
- *
- * 1. I2C communication is functional.
- * 2. The STOP bit in CONTROL_1 is clear (oscillator not halted).
- * 3. The OS (Oscillator Stop) flag in the Seconds register is clear.
- * 4. The seconds register advances over ~1 second, proving the crystal
- *    oscillator is physically running.
- *
- * ============================================================================
- * BEHAVIOR
- * ============================================================================
- *
- * - Blocks for approximately 1.1 seconds while verifying seconds rollover.
- * - Performs multiple I2C reads.
- * - Does NOT modify time.
- * - Does NOT clear the OS flag.
- *
- * ============================================================================
- * SYSTEM CONTRACT
- * ============================================================================
- *
- * This function must:
- *
- *  - Be called during boot only.
- *  - NOT be called from the main loop.
- *  - NOT be used for periodic health checks.
- *
- * If this function returns false, the RTC is considered invalid and the
- * entire system time base must be treated as invalid.
- *
- * The system design explicitly states:
- *
- *     If the RTC is invalid, the system is invalid.
- *
- * ============================================================================
- *
- * @return true  RTC oscillator confirmed running and time considered valid.
- * @return false RTC failed integrity validation.
+ * If this returns false, the system time base is invalid.
  */
 bool rtc_validate_at_boot(void);
 
 /* --------------------------------------------------------------------------
- * Time API (LOCAL civil time)
+ * Time API (UTC internally)
  * -------------------------------------------------------------------------- */
 
 /**
- * @brief Read current LOCAL time from RTC.
+ * @brief Read current UTC time from RTC.
  */
 void rtc_get_time(int *y, int *mo, int *d,
                   int *h, int *m, int *s);
 
 /**
- * @brief Set LOCAL civil time in RTC.
+ * @brief Set UTC time in RTC.
  *
  * @return true on success.
  */
@@ -145,11 +101,11 @@ bool rtc_set_time(int y, int mo, int d,
                   int h, int m, int s);
 
 /* --------------------------------------------------------------------------
- * Alarm API (minute resolution)
+ * Alarm API (minute resolution, UTC-based)
  * -------------------------------------------------------------------------- */
 
 /**
- * @brief Set alarm using hour/minute match.
+ * @brief Set alarm using hour/minute match (UTC).
  *
  * Alarm interrupt remains asserted until cleared.
  */
@@ -168,26 +124,26 @@ void rtc_alarm_disable(void);
 void rtc_alarm_clear_flag(void);
 
 /* --------------------------------------------------------------------------
- * Scheduler Support
+ * Scheduler Support (UTC)
  * -------------------------------------------------------------------------- */
 
 /**
  * @brief Returns minutes since midnight [0..1439].
  *
- * Derived from LOCAL RTC time.
+ * Derived from UTC RTC time.
  */
 uint16_t rtc_minutes_since_midnight(void);
 
 /**
  * @brief Set alarm using minute-of-day [0..1439].
  *
- * Converts minute-of-day → HH:MM.
+ * Converts minute-of-day → HH:MM (UTC).
  * Caller must ensure the minute is in the future.
  */
 bool rtc_alarm_set_minute_of_day(uint16_t minute_of_day);
 
 /* --------------------------------------------------------------------------
- * Epoch Helpers (UTC-normalized, 2000 base)
+ * Epoch Helpers (UTC, 2000 base)
  * -------------------------------------------------------------------------- */
 
 /**
@@ -197,10 +153,9 @@ bool rtc_alarm_set_minute_of_day(uint16_t minute_of_day);
  *   2000-01-01 00:00:00 UTC
  *
  * Behavior:
- *  - Reads LOCAL time from RTC.
- *  - Applies configured timezone (g_cfg.tz).
- *  - Applies DST if enabled (g_cfg.honor_dst).
- *  - Returns normalized UTC seconds.
+ *  - Reads UTC time from RTC.
+ *  - No timezone logic applied.
+ *  - No DST logic applied.
  *
  * Returns 0 if RTC is invalid.
  */
@@ -215,16 +170,19 @@ uint32_t rtc_get_epoch(void);
  * @param h          Hour [0..23]
  * @param m          Minute [0..59]
  * @param s          Second [0..59]
- * @param tz_hours   Timezone offset from UTC
- * @param honor_dst  Apply US DST rule if true
+ * @param tz_hours   Ignored (retained for API compatibility)
+ * @param honor_dst  Ignored (retained for API compatibility)
  *
  * @return Seconds since 2000-01-01 00:00:00 UTC.
  *
  * Notes:
- *  - Input time is interpreted as LOCAL civil time.
+ *  - Input time is interpreted as UTC.
  *  - Output is UTC-normalized.
  *  - Deterministic, no hardware access.
  *  - Valid for years >= 2000.
+ *
+ *  tz_hours and honor_dst are intentionally ignored.
+ *  Timezone logic must exist only in console layer.
  */
 uint32_t rtc_epoch_from_ymdhms(
     int y, int mo, int d,
