@@ -34,7 +34,8 @@ OBJCOPY := avr-objcopy
 OBJDUMP := avr-objdump
 SIZE    := avr-size
 AVRDUDE := avrdude
-
+CPPCHECK := cppcheck
+CLANG_TIDY := clang-tidy
 
 # ------------------------------------------------------------
 # Programmer Configuration
@@ -223,4 +224,35 @@ clean:
 	rm -rf $(OBJ_DIR) *.elf *.hex *.lst *.map
 
 
-.PHONY: all clean flash flash-part set-fuses check-fuses size
+	# ------------------------------------------------------------
+# Static Analysis
+# ------------------------------------------------------------
+
+
+# All include paths used by analyzer
+STATIC_INCLUDES := -Isrc -Iplatform
+
+# ------------------------------------------------------------
+# Static Analysis (cppcheck)
+# ------------------------------------------------------------
+
+STATIC_INCLUDES := -Isrc -Iplatform
+
+static:
+	@echo "---- Running cppcheck ----"
+	$(CPPCHECK) \
+		--enable=warning,performance,style \
+		--std=c++17 \
+		--inline-suppr \
+		--error-exitcode=1 \
+		--quiet \
+		$(STATIC_INCLUDES) \
+		$(SRCS)
+
+
+# ------------------------------------------------------------
+# Combined
+# ------------------------------------------------------------
+
+
+.PHONY: all clean flash flash-part set-fuses check-fuses size static
