@@ -1093,19 +1093,14 @@ static void cmd_rtc(int argc, char **argv)
     int y, mo, d, h, m, s;
     rtc_get_time(&y, &mo, &d, &h, &m, &s);   /* UTC */
 
-    uint32_t epoch = rtc_get_epoch();        /* UTC epoch */
 
-    console_puts("RTC: VALID\n");
+    console_puts("RTC      : VALID\n");
 
     /* --------------------------------------------------
      * Raw UTC (hardware truth)
      * -------------------------------------------------- */
-    mini_printf("utc date : %04d-%02d-%02d\n", y, mo, d);
-    mini_printf("utc time : %02d:%02d:%02d\n", h, m, s);
-    mini_printf("epoch    : %lu\n", (unsigned long)epoch);
+     mini_printf("utc      : %04d-%02d-%02d  %02d:%02d:%02d \n", y, mo, d,  h, m, s);
 
-    uint16_t mins = rtc_minutes_since_midnight();
-    mini_printf("utc minute_of_day: %u\n", (unsigned)mins);
 
     /* --------------------------------------------------
      * Derived LOCAL time (presentation only)
@@ -1150,8 +1145,10 @@ static void cmd_rtc(int argc, char **argv)
         }
     }
 
-    mini_printf("local date: %04d-%02d-%02d\n", ly, lmo, ld);
-    mini_printf("local time: %02d:%02d:%02d\n", lh, m, s);
+    mini_printf("local    : %04d-%02d-%02d  %02d:%02d:%02d \n", ly, lmo, ld,  lh, m, s);
+
+    uint32_t epoch = rtc_get_epoch();        /* UTC epoch */
+    mini_printf("epoch    : %lu\n", (unsigned long)epoch);
 
     /* --------------------------------------------------
      * Drift measurement (UTC basis only)
