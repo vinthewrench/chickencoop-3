@@ -165,6 +165,11 @@ $(PROJECT).lst: $(PROJECT).elf
 	$(OBJDUMP) -h -S "$<" > "$@"
 
 
+isp:
+	$(AVRDUDE) -c $(PROGRAMMER) -P $(PORT) -p $(AVRDUDE_MCU) \
+	-B 100  -v
+
+
 # ------------------------------------------------------------
 # Flash (No Chip Erase)
 # Preserves EEPROM
@@ -205,6 +210,12 @@ check-fuses:
 		-U lfuse:r:-:h \
 		-U hfuse:r:-:h \
 		-U efuse:r:-:h
+
+
+isp:
+	$(AVRDUDE) -c $(PROGRAMMER) -P $(PORT) -p $(AVRDUDE_MCU) \
+	-B 100  -v
+
 
 
 # ------------------------------------------------------------
@@ -254,4 +265,4 @@ static:
 # ------------------------------------------------------------
 
 
-.PHONY: all clean flash flash-part set-fuses check-fuses size static size
+.PHONY: all clean flash flash-part set-fuses check-fuses size static size isp

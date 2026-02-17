@@ -73,6 +73,7 @@ void console_init(void)
         rtc_get_time(&y, &mo, &d, &h, &m, &s);
         console_puts_str(CONSOLE_STR("TIME: "));
         print_datetime_ampm(y, mo, d, h, m, s);
+        console_putc('\n');
     } else {
         console_puts_str(CONSOLE_STR("TIME: NOT SET\n"));
         console_puts_str(CONSOLE_STR("Use: set date YYYY-MM-DD\n"));

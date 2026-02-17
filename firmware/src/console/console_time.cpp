@@ -76,7 +76,7 @@ void print_datetime_ampm(int y,int mo,int d,int h,int m,int s)
     console_putc(' ');
     console_putc(pm ? 'P' : 'A');
     console_putc('M');
-    console_putc('\n');
+
 }
 
 // bool parse_time(const char *s, int *h, int *m, int *sec)

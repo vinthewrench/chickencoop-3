@@ -157,6 +157,15 @@ static int days_in_month(int y, int mo)
     return dpm[mo - 1];
 }
 
+static int utc_offset_minutes(int y, int mo, int d, int h)
+{
+    int dst = 0;
+
+    if (g_cfg.honor_dst && is_us_dst(y, mo, d, h))
+        dst = 60;
+
+    return g_cfg.tz * 60 + dst;
+}
 /* -------------------------------------------------------------------------- */
 /* Parsing helpers                                                            */
 /* -------------------------------------------------------------------------- */
@@ -250,7 +259,7 @@ static void print_padded(const char *s, size_t width)
 }
 
 
-static void when_print(const struct When *w)
+static void when_print(const struct When *w, int tod_minute)
 {
     if (!w) {
         console_puts("?");
@@ -259,7 +268,7 @@ static void when_print(const struct When *w)
 
     int off = w->offset_minutes;
     char sign = (off < 0) ? '-' : '+';
-    int mins = abs(off);
+    int mins = (off < 0) ? -off : off;
 
     switch (w->ref) {
 
@@ -268,13 +277,20 @@ static void when_print(const struct When *w)
         return;
 
     case REF_MIDNIGHT: {
-        int h = off / 60;
-        int m = abs(off % 60);
-        mini_printf("%02d:%02d", h, m);
+        int hh24 = tod_minute / 60;
+        int mm   = tod_minute % 60;
+
+        const char *ampm = (hh24 >= 12) ? "PM" : "AM";
+
+        int hh12 = hh24 % 12;
+        if (hh12 == 0)
+            hh12 = 12;
+
+        mini_printf("%02d:%02d %s", hh12, mm, ampm);
         return;
     }
 
-    case REF_SOLAR_STD_RISE:
+     case REF_SOLAR_STD_RISE:
         mini_printf("Sunrise %c%d", sign, mins);
         return;
 
@@ -295,7 +311,6 @@ static void when_print(const struct When *w)
         return;
     }
 }
-
 
 
 static bool parse_signed_int(const char *s, int *out)
@@ -374,23 +389,18 @@ static void cmd_time(int, char **)
     /* Read UTC */
     rtc_get_time(&y, &mo, &d, &h, &m, &s);
 
-    /* Convert UTC → LOCAL for display */
-    int tz = g_cfg.tz;
-    int dst = 0;
+    /* Convert UTC → LOCAL using minutes */
+    int offset_min = utc_offset_minutes(y, mo, d, h);
 
-    if (g_cfg.honor_dst && is_us_dst(y, mo, d, h))
-        dst = 1;
+    int total_min = h * 60 + m + offset_min;
 
-    int total = tz + dst;
-
-    /* Apply offset */
-    int hh = h + total;
-    int dd = d;
-    int mm2 = mo;
     int yy = y;
+    int mm2 = mo;
+    int dd = d;
 
-    while (hh < 0) {
-        hh += 24;
+    /* Handle day rollover */
+    while (total_min < 0) {
+        total_min += 1440;
         dd--;
         if (dd < 1) {
             mm2--;
@@ -402,8 +412,8 @@ static void cmd_time(int, char **)
         }
     }
 
-    while (hh >= 24) {
-        hh -= 24;
+    while (total_min >= 1440) {
+        total_min -= 1440;
         dd++;
         if (dd > days_in_month(yy, mm2)) {
             dd = 1;
@@ -415,9 +425,12 @@ static void cmd_time(int, char **)
         }
     }
 
-    print_datetime_ampm(yy, mm2, dd, hh, m, s);
-}
+    int hh = total_min / 60;
+    int mm = total_min % 60;
 
+    print_datetime_ampm(yy, mm2, dd, hh, mm, s);
+    console_putc('\n');
+}
 
 static void cmd_solar(int argc, char **argv)
 {
@@ -439,7 +452,7 @@ static void cmd_solar(int argc, char **argv)
 
     struct solar_times sol;
 
-    /* Request solar in UTC */
+    /* Solar times returned in UTC minutes */
     if (!solar_compute(y, mo, d,
                        lat,
                        lon,
@@ -449,19 +462,18 @@ static void cmd_solar(int argc, char **argv)
         return;
     }
 
-    /* Convert to LOCAL minutes for display */
-    int tz = g_cfg.tz;
-    int dst = 0;
-    if (g_cfg.honor_dst && is_us_dst(y, mo, d, h))
-        dst = 1;
-
-    int total = tz + dst;
-    int offset_min = total * 60;
+    int offset_min = utc_offset_minutes(y, mo, d, h);
 
     sol.sunrise_std += offset_min;
     sol.sunset_std  += offset_min;
     sol.sunrise_civ += offset_min;
     sol.sunset_civ  += offset_min;
+
+    /* Normalize to 0–1439 */
+    sol.sunrise_std = (sol.sunrise_std + 1440) % 1440;
+    sol.sunset_std  = (sol.sunset_std  + 1440) % 1440;
+    sol.sunrise_civ = (sol.sunrise_civ + 1440) % 1440;
+    sol.sunset_civ  = (sol.sunset_civ  + 1440) % 1440;
 
     console_puts("           Rise        Set\n");
 
@@ -679,7 +691,7 @@ static void cmd_schedule(int argc, char **argv)
         print_padded(dev,   8);
         print_padded(state, 8);
 
-        when_print(&ev->when);
+        when_print(&ev->when, local_min);
         console_putc('\n');
     }
 }
@@ -1099,53 +1111,53 @@ static void cmd_rtc(int argc, char **argv)
     /* --------------------------------------------------
      * Raw UTC (hardware truth)
      * -------------------------------------------------- */
-     mini_printf("utc      : %04d-%02d-%02d  %02d:%02d:%02d \n", y, mo, d,  h, m, s);
+     mini_printf("utc      : %04d-%02d-%02d %02d:%02d:%02d \n", y, mo, d,  h, m, s);
 
 
     /* --------------------------------------------------
      * Derived LOCAL time (presentation only)
      * -------------------------------------------------- */
+     int offset_min = utc_offset_minutes(y, mo, d, h);
 
-    int tz = g_cfg.tz;
-    int dst = 0;
+     int total_min = h * 60 + m + offset_min;
 
-    if (g_cfg.honor_dst && is_us_dst(y, mo, d, h))
-        dst = 1;
+     int ly = y;
+     int lmo = mo;
+     int ld = d;
 
-    int total = tz + dst;
+     /* Handle day rollover */
+     while (total_min < 0) {
+         total_min += 1440;
+         ld--;
+         if (ld < 1) {
+             lmo--;
+             if (lmo < 1) {
+                 lmo = 12;
+                 ly--;
+             }
+             ld = days_in_month(ly, lmo);
+         }
+     }
 
-    int ly = y;
-    int lmo = mo;
-    int ld = d;
-    int lh = h + total;
+     while (total_min >= 1440) {
+         total_min -= 1440;
+         ld++;
+         if (ld > days_in_month(ly, lmo)) {
+             ld = 1;
+             lmo++;
+             if (lmo > 12) {
+                 lmo = 1;
+                 ly++;
+             }
+         }
+     }
 
-    while (lh < 0) {
-        lh += 24;
-        ld--;
-        if (ld < 1) {
-            lmo--;
-            if (lmo < 1) {
-                lmo = 12;
-                ly--;
-            }
-            ld = days_in_month(ly, lmo);
-        }
-    }
+     int lh = total_min / 60;
+     int lm = total_min % 60;
 
-    while (lh >= 24) {
-        lh -= 24;
-        ld++;
-        if (ld > days_in_month(ly, lmo)) {
-            ld = 1;
-            lmo++;
-            if (lmo > 12) {
-                lmo = 1;
-                ly++;
-            }
-        }
-    }
-
-    mini_printf("local    : %04d-%02d-%02d  %02d:%02d:%02d \n", ly, lmo, ld,  lh, m, s);
+     console_puts("local    : ");
+     print_datetime_ampm(ly, lmo, ld, lh, lm, s);
+     console_putc('\n');
 
     uint32_t epoch = rtc_get_epoch();        /* UTC epoch */
     mini_printf("epoch    : %lu\n", (unsigned long)epoch);
@@ -1311,25 +1323,15 @@ static void cmd_event(int argc, char **argv)
 
             /* ---- Convert UTC minute → LOCAL minute ---- */
 
-            int tz = g_cfg.tz;
-            int dst = 0;
+            int y, mo, d, dummy;
+            rtc_get_time(&y, &mo, &d, &dummy, NULL, NULL);
 
-            int y, mo, d, h;
-            rtc_get_time(&y, &mo, &d, &h, NULL, NULL);
+            /* Compute offset using the event's UTC hour */
+            int event_hour = utc_minute / 60;
+            int offset_min = utc_offset_minutes(y, mo, d, event_hour);
 
-            if (g_cfg.honor_dst && is_us_dst(y, mo, d, h))
-                dst = 1;
-
-            int total = tz + dst;
-            int offset_min = total * 60;
-
-            int local_minute = (int)utc_minute + offset_min;
-
-            while (local_minute < 0)
-                local_minute += 1440;
-
-            while (local_minute >= 1440)
-                local_minute -= 1440;
+            int local_minute = utc_minute + offset_min;
+            local_minute = (local_minute + 1440) % 1440;
 
             /* ---- Device/state ---- */
 
@@ -1357,10 +1359,9 @@ static void cmd_event(int argc, char **argv)
             print_padded(state, 7);
             console_putc(' ');
 
-            when_print(&ev->when);
+            when_print(&ev->when, local_minute);
             console_putc('\n');
         }
-
         return;
     }
 
