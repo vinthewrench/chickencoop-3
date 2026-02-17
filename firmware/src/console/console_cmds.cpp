@@ -191,43 +191,157 @@ static bool parse_date_ymd(const char *s, int *y, int *mo, int *d)
     return true;
 }
 
-/* HH:MM (24-hour) — used for door rules */
-static bool parse_time_hm(const char *s, int *h, int *m)
+/**
+ * @brief Parse a 24-hour time string.
+ *
+ * Accepts:
+ *   - H:MM
+ *   - HH:MM
+ *   - H:MM:SS
+ *   - HH:MM:SS
+ *
+ * Rules:
+ *   - Minutes and seconds must be exactly two digits.
+ *   - Hour may be one or two digits.
+ *   - No whitespace allowed.
+ *   - No AM/PM suffix allowed.
+ *   - Entire string must be consumed (no trailing characters).
+ *
+ * Design:
+ *   - Deterministic, manual parsing.
+ *   - No sscanf, no atoi, no dynamic allocation.
+ *   - Stateless and side-effect free.
+ *
+ * @param s    Null-terminated input string.
+ * @param h    Output hour (0–23).
+ * @param m    Output minute (0–59).
+ * @param sec  Output seconds (0–59). May be NULL.
+ *
+ * @return true  If parsing and range validation succeed.
+ * @return false If format or range is invalid.
+ */
+static bool parse_time(const char *s, int *h, int *m, int *sec)
 {
-    if (!s || strlen(s) != 5) return false;
-    if (s[2] != ':') return false;
+    if (!s || !h || !m)
+        return false;
 
-    for (int i = 0; i < 5; i++) {
-        if (i == 2) continue;
-        if (s[i] < '0' || s[i] > '9') return false;
+    int i = 0;
+
+    /* ---- Parse hour (1 or 2 digits) ---- */
+    if (s[i] < '0' || s[i] > '9')
+        return false;
+
+    int hh = s[i++] - '0';
+
+    if (s[i] >= '0' && s[i] <= '9') {
+        hh = hh * 10 + (s[i++] - '0');
     }
 
-    *h = atoi(s);
-    *m = atoi(s + 3);
+    if (s[i++] != ':')
+        return false;
 
-    if (*h < 0 || *h > 23) return false;
-    if (*m < 0 || *m > 59) return false;
+    /* ---- Parse minutes (exactly 2 digits) ---- */
+    if (s[i] < '0' || s[i] > '9')
+        return false;
+    int mm = (s[i++] - '0') * 10;
+
+    if (s[i] < '0' || s[i] > '9')
+        return false;
+    mm += (s[i++] - '0');
+
+    int ss = 0;
+
+    /* ---- Optional seconds ---- */
+    if (s[i] == ':') {
+        i++;
+
+        if (s[i] < '0' || s[i] > '9')
+            return false;
+        ss = (s[i++] - '0') * 10;
+
+        if (s[i] < '0' || s[i] > '9')
+            return false;
+        ss += (s[i++] - '0');
+    }
+
+    /* Entire string must be consumed */
+    if (s[i] != '\0')
+        return false;
+
+    /* ---- Range checks ---- */
+    if (hh < 0 || hh > 23)
+        return false;
+
+    if (mm < 0 || mm > 59)
+        return false;
+
+    if (ss < 0 || ss > 59)
+        return false;
+
+    *h = hh;
+    *m = mm;
+
+    if (sec)
+        *sec = ss;
 
     return true;
 }
 
 
-static bool parse_time_hms(const char *s,int *h,int *m,int *sec)
+/**
+ * @brief Parse HH:MM only (seconds forbidden).
+ *
+ * Used for declarative schedule events.
+ *
+ * Policy:
+ *   - Event times are minute-precision only.
+ *   - Supplying seconds is treated as a format error.
+ *
+ * Accepted:
+ *   - H:MM
+ *   - HH:MM
+ *
+ * Rejected:
+ *   - H:MM:SS
+ *   - HH:MM:SS
+ *
+ * @param s Input string.
+ * @param h Output hour.
+ * @param m Output minute.
+ *
+ * @return true if valid HH:MM.
+ */
+static bool parse_time_hm(const char *s, int *h, int *m)
 {
-    // HH:MM:SS (24-hour)
-    if (!s || strlen(s) != 8) return false;
-    if (s[2] != ':' || s[5] != ':') return false;
-    for (int i = 0; i < 8; i++) {
-        if (i == 2 || i == 5) continue;
-        if (s[i] < '0' || s[i] > '9') return false;
-    }
-    *h   = atoi(s);
-    *m   = atoi(s + 3);
-    *sec = atoi(s + 6);
-    if (*h < 0 || *h > 23) return false;
-    if (*m < 0 || *m > 59) return false;
-    if (*sec < 0 || *sec > 59) return false;
+    int sec;
+
+    if (!parse_time(s, h, m, &sec))
+        return false;
+
+    /* Reject if seconds were present (detect second colon) */
+    const char *c1 = strchr(s, ':');
+    if (c1 && strchr(c1 + 1, ':'))
+        return false;
+
     return true;
+}
+
+
+/**
+ * @brief Parse HH:MM:SS (seconds allowed).
+ *
+ * Used when setting RTC or other second-precision operations.
+ *
+ * @param s   Input string.
+ * @param h   Output hour.
+ * @param m   Output minute.
+ * @param sec Output seconds.
+ *
+ * @return true if valid time with optional seconds.
+ */
+static bool parse_time_hms(const char *s, int *h, int *m, int *sec)
+{
+    return parse_time(s, h, m, sec);
 }
 
 static void print_uint_padded(unsigned v, size_t width)
