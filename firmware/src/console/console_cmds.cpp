@@ -37,8 +37,12 @@
  #include <ctype.h>
  #include <util/delay.h>
 
+ #include <avr/pgmspace.h>
+
 
 #include "console/console_io.h"
+#include "console/console_cmds.h"
+
 #include "console/console.h"
 #include "console/mini_printf.h"
 #include "time_dst.h"
@@ -1934,12 +1938,6 @@ typedef struct {
 /* ------------------------------------------------------------
  * Command string declarations
  * ------------------------------------------------------------ */
- /* ------------------------------------------------------------
-  * Command string declarations (flash)
-  * ------------------------------------------------------------ */
-
- #include <avr/pgmspace.h>
-
  #define DECLARE_CMD_STRINGS(name, min, max, fn, short_h, long_h) \
      static const char cmd_##name##_name[]  PROGMEM = #name; \
      static const char cmd_##name##_short[] PROGMEM = short_h; \
@@ -1963,12 +1961,37 @@ typedef struct {
 
  #undef MAKE_CMD_ENTRY
 
- #define CMD_TABLE_LEN (sizeof(cmd_table) / sizeof(cmd_table[0]))
+#define CMD_TABLE_LEN (sizeof(cmd_table) / sizeof(cmd_table[0]))
 static void read_cmd_entry(cmd_entry_t *dst, unsigned idx)
 {
     memcpy_P(dst, &cmd_table[idx], sizeof(cmd_entry_t));
 }
 
+/**
+ * @brief Console "help" command.
+ *
+ * Behavior:
+ *   - With no arguments:
+ *       Prints a formatted list of all registered commands
+ *       with aligned short descriptions.
+ *
+ *   - With one argument:
+ *       Looks up the specified command and prints its
+ *       detailed (long) help text.
+ *
+ *   - If the command is not found:
+ *       Prints "?".
+ *
+ * Design notes:
+ *   - Command table resides in flash (PROGMEM).
+ *   - Entries are copied to a temporary RAM structure
+ *     using read_cmd_entry() before access.
+ *   - No dynamic allocation.
+ *   - Deterministic iteration over command table.
+ *
+ * @param argc Argument count
+ * @param argv Argument vector
+ */
 void console_help(int argc, char **argv)
 {
     cmd_entry_t e;
@@ -2017,6 +2040,31 @@ void console_help(int argc, char **argv)
     console_puts("?\n");
 }
 
+/**
+ * @brief Dispatch a console command.
+ *
+ * Performs:
+ *   - Case-normalization of command name (argv[0])
+ *   - Linear search of flash-resident command table
+ *   - Argument count validation
+ *   - Handler invocation
+ *
+ * If:
+ *   - Argument count is invalid:
+ *       Prints short help string.
+ *   - Command is not found:
+ *       Prints "?".
+ *
+ * Design constraints:
+ *   - No dynamic allocation.
+ *   - Flash table access via read_cmd_entry().
+ *   - Deterministic execution time proportional to
+ *     number of commands.
+ *
+ * @param argc Argument count
+ * @param argv Argument vector
+ */
+
 void console_dispatch(int argc, char **argv)
 {
     if (argc == 0)
@@ -2047,4 +2095,44 @@ void console_dispatch(int argc, char **argv)
     }
 
     console_puts("?\n");
+}
+
+/**
+ * @brief Return total number of registered console commands.
+ *
+ * Used by:
+ *   - Autocomplete
+ *   - Command listing
+ *   - Debug or introspection utilities
+ *
+ * @return Number of entries in flash command table
+ */
+unsigned console_cmd_count(void)
+{
+    return CMD_TABLE_LEN;
+}
+
+/**
+ * @brief Return command name at given index.
+ *
+ * Reads the flash-resident command entry into a temporary
+ * RAM structure and returns the PROGMEM pointer to the
+ * command name string.
+ *
+ * Caller must use PROGMEM-safe access functions when
+ * printing the returned string.
+ *
+ * @param index Command table index
+ *
+ * @return Pointer to PROGMEM command name, or NULL if invalid index
+ */
+const char *console_cmd_name_at(unsigned index)
+{
+    if (index >= CMD_TABLE_LEN)
+        return 0;
+
+    cmd_entry_t tmp;
+    read_cmd_entry(&tmp, index);
+
+    return tmp.cmd;
 }

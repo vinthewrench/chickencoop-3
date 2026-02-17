@@ -18,7 +18,7 @@
 # Project Configuration
 # ------------------------------------------------------------
 
-PROJECT_VERSION := "2.8.0"
+PROJECT_VERSION := "2.9.0"
 
 PROJECT := coop_firmware
 MCU     := atmega1284p
