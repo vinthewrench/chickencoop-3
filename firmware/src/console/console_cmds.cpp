@@ -1441,72 +1441,59 @@ static void cmd_event(int argc, char **argv)
           * WHEN parsing
           * -------------------------------------------------- */
 
-         /* implicit HH:MM */
-         if (argc == 5) {
-             int hh, mm;
-             if (parse_time_hm(argv[4], &hh, &mm)) {
+          /* implicit HH:MM */
+          if (argc == 5) {
+              int hh, mm;
+              if (parse_time_hm(argv[4], &hh, &mm)) {
 
-                 /* Convert LOCAL → UTC */
-                 int tz = g_cfg.tz;
-                 int dst = 0;
+                  /* ---- Convert LOCAL → UTC (minutes-based) ---- */
 
-                 int y, mo, d, h;
-                 rtc_get_time(&y, &mo, &d, &h, NULL, NULL);
+                  uint16_t local_minute = (uint16_t)(hh * 60 + mm);
 
-                 if (g_cfg.honor_dst && is_us_dst(y, mo, d, hh))
-                     dst = 1;
+                  int y, mo, d, utc_h_now;
+                  rtc_get_time(&y, &mo, &d, &utc_h_now, NULL, NULL);  /* UTC */
 
-                 int total = tz + dst;
+                  /* Compute offset using current UTC time */
+                  int offset_min = utc_offset_minutes(y, mo, d, utc_h_now);
 
-                 int utc_h = hh - total;
-                 int utc_min = utc_h * 60 + mm;
+                  /* local = utc + offset  →  utc = local - offset */
+                  int utc_minute = (int)local_minute - offset_min;
 
-                 while (utc_min < 0)
-                     utc_min += 1440;
+                  /* Normalize to 0–1439 */
+                  utc_minute = (utc_minute + 1440) % 1440;
 
-                 while (utc_min >= 1440)
-                     utc_min -= 1440;
+                  ev.when.ref = REF_MIDNIGHT;
+                  ev.when.offset_minutes = (int16_t)utc_minute;
 
-                 ev.when.ref = REF_MIDNIGHT;
-                 ev.when.offset_minutes = (int16_t)utc_min;
+                  goto add_event;
+              }
+          }
 
-                 goto add_event;
-             }
-         }
+          /* explicit midnight HH:MM */
+          if (argc == 6 && !strcmp(argv[4], "midnight")) {
+              int hh, mm;
+              if (!parse_time_hm(argv[5], &hh, &mm)) {
+                  console_puts("ERROR TIME\n");
+                  return;
+              }
 
-         /* explicit midnight HH:MM */
-         if (argc == 6 && !strcmp(argv[4], "midnight")) {
-             int hh, mm;
-             if (!parse_time_hm(argv[5], &hh, &mm)) {
-                 console_puts("ERROR TIME\n");
-                 return;
-             }
+              /* ---- Convert LOCAL → UTC (minutes-based) ---- */
 
-             int tz = g_cfg.tz;
-             int dst = 0;
+              uint16_t local_minute = (uint16_t)(hh * 60 + mm);
 
-             int y, mo, d, h;
-             rtc_get_time(&y, &mo, &d, &h, NULL, NULL);
+              int y, mo, d, utc_h_now;
+              rtc_get_time(&y, &mo, &d, &utc_h_now, NULL, NULL);  /* UTC */
 
-             if (g_cfg.honor_dst && is_us_dst(y, mo, d, hh))
-                 dst = 1;
+              int offset_min = utc_offset_minutes(y, mo, d, utc_h_now);
 
-             int total = tz + dst;
+              int utc_minute = (int)local_minute - offset_min;
+              utc_minute = (utc_minute + 1440) % 1440;
 
-             int utc_h = hh - total;
-             int utc_min = utc_h * 60 + mm;
+              ev.when.ref = REF_MIDNIGHT;
+              ev.when.offset_minutes = (int16_t)utc_minute;
 
-             while (utc_min < 0)
-                 utc_min += 1440;
-
-             while (utc_min >= 1440)
-                 utc_min -= 1440;
-
-             ev.when.ref = REF_MIDNIGHT;
-             ev.when.offset_minutes = (int16_t)utc_min;
-
-             goto add_event;
-         }
+              goto add_event;
+          }
 
          /* solar / civil anchors */
          static const struct {

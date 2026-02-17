@@ -173,8 +173,6 @@ int main(void)
     uint8_t  door_debounce_active   = 0;
     uint32_t door_debounce_start_ms = 0;
 
-    bool force_time_read = true;
-
     int cached_y = 0, cached_mo = 0, cached_d = 0;
     int cached_h = 0, cached_m = 0, cached_s = 0;
 
@@ -250,21 +248,15 @@ int main(void)
         }
 
         /* ------------------------------------------------------
-         * Read RTC ONLY when needed
+         * Always refresh RTC (UTC authoritative)
          * ------------------------------------------------------ */
 
-        if (force_time_read) {
-
-            /* rtc_get_time() now returns UTC */
-            rtc_get_time(&cached_y,
-                         &cached_mo,
-                         &cached_d,
-                         &cached_h,
-                         &cached_m,
-                         &cached_s);
-
-            force_time_read = false;
-        }
+        rtc_get_time(&cached_y,
+                     &cached_mo,
+                     &cached_d,
+                     &cached_h,
+                     &cached_m,
+                     &cached_s);
 
         uint16_t now_minute = minute_of_day(cached_h, cached_m);
         uint32_t cur_etag   = schedule_etag();
@@ -273,20 +265,10 @@ int main(void)
         bool schedule_dirty = (cur_etag != last_etag);
 
         /* ------------------------------------------------------
-         * On minute change, refresh RTC + scheduler
+         * On minute change or schedule change, run scheduler
          * ------------------------------------------------------ */
 
         if (minute_changed || schedule_dirty) {
-
-            /* Re-read RTC once to get accurate minute boundary (UTC) */
-            rtc_get_time(&cached_y,
-                         &cached_mo,
-                         &cached_d,
-                         &cached_h,
-                         &cached_m,
-                         &cached_s);
-
-            now_minute = minute_of_day(cached_h, cached_m);
 
             last_minute = now_minute;
             last_etag   = cur_etag;
@@ -373,9 +355,6 @@ int main(void)
 
         (void)rtc_alarm_set_minute_of_day(wake_min);
         system_sleep_until(wake_min);
-
-        /* After wake, force time read next loop */
-        force_time_read = true;
 
         if (gpio_rtc_int_is_asserted())
             rtc_alarm_clear_flag();
