@@ -70,6 +70,9 @@
 #include "i2c.h"
 #include "console/mini_printf.h"
 
+
+//#define DEBUG_RTC 1
+
 /* ============================================================================
  * REGISTER MAP
  * ========================================================================== */
@@ -291,9 +294,9 @@ void rtc_get_time(int *y, int *mo, int *d,
     if (!i2c_read(PCF8523_ADDR7, REG_SECONDS, buf, sizeof(buf)))
         return;
 
-#ifdef DEBUG_RTC
-    mini_printf("\tDEBUG RTC buffer: %02x %02x %02x %02x:\n", buf[0],  buf[1],  buf[2],  buf[3] );
-#endif
+// #ifdef DEBUG_RTC
+//     mini_printf("\tDEBUG RTC buffer: %02x %02x %02x %02x:\n", buf[0],  buf[1],  buf[2],  buf[3] );
+// #endif
 
     if (s)  *s  = bcd_to_bin(buf[0] & 0x7F);
     if (m)  *m  = bcd_to_bin(buf[1] & 0x7F);
