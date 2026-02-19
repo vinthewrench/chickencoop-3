@@ -34,6 +34,13 @@ static void door_set_state(dev_state_t state)
         door_sm_request(state);
 }
 
+static void door_schedule_state(dev_state_t state, uint32_t when)
+{
+    if (state == DEV_STATE_ON || state == DEV_STATE_OFF)
+        door_sm_schedule(state, when);
+}
+
+
 static const char *door_state_string(dev_state_t state)
 {
     if (state == DEV_STATE_ON)
@@ -97,6 +104,7 @@ Device door_device = {
     .init         = door_init,
     .get_state    = door_get_state,
     .set_state    = door_set_state,
+    .schedule_state = door_schedule_state,
     .state_string = door_state_string,
     .tick         = door_tick,
     .is_busy      = door_busy

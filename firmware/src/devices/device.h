@@ -31,6 +31,7 @@ typedef struct {
     void        (*init)(void);
     dev_state_t (*get_state)(void);
     void        (*set_state)(dev_state_t state);
+    void        (*schedule_state)(dev_state_t state,uint32_t when);
     const char *(*state_string)(dev_state_t state);
     void        (*tick)(uint32_t now_ms);
     bool        (*is_busy)(void);

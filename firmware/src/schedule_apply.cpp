@@ -39,18 +39,23 @@
          if (have == want)
              continue;
 
+
+         uint32_t when = rs->when[id];
+
 #if 0    /* ---- DEBUG: print scheduled action ---- */
 
          const char *name = "?";
          device_name(id, &name);
 
-         mini_printf("\tDEBUG SCHED: %s -> %s\n",
+         mini_printf("\tDEBUG SCHED: %s -> %s (when=%lu)\n",
                      name,
-                     (want == DEV_STATE_ON) ? "ON" : "OFF");
+                     (want == DEV_STATE_ON) ? "ON" : "OFF",
+                     when);
+
 #endif
 
          /* ---- Apply action ---- */
 
-         device_set_state_by_id(id, want);
+         device_schedule_state_by_id(id, want,when);
      }
  }

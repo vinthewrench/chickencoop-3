@@ -60,6 +60,7 @@ Device foo_device = {
     .init = foo_device_init,
     .get_state = foo_get_state,
     .set_state = foo_set_state,
+    .schedule_state  = NULL,
     .state_string = foo_state_string,
     .tick = NULL,
     .is_busy  = NULL

@@ -12,6 +12,9 @@
 #include "door_lock.h"
 #include "config.h"
 #include "uptime.h"
+#include "rtc.h"
+
+#include "console/mini_printf.h"
 
 /* --------------------------------------------------------------------------
  * Internal state
@@ -20,6 +23,8 @@
 static door_motion_t g_motion        = DOOR_IDLE_UNKNOWN;
 static dev_state_t   g_settled_state = DEV_STATE_UNKNOWN;
 static uint32_t      g_motion_t0_ms  = 0;
+
+static uint32_t      g_last_override_time = 0;
 
 /* Optional delay before locking (settle time) */
 #define POSTCLOSE_DELAY_MS  250u
@@ -100,10 +105,20 @@ void door_sm_init(void)
     set_motion(DOOR_IDLE_UNKNOWN);
 }
 
-void door_sm_request(dev_state_t state)
+
+
+void door_sm_request_internal(dev_state_t state)
 {
     if (state != DEV_STATE_ON && state != DEV_STATE_OFF)
         return;
+
+    #if 0   /* DEBUG */
+
+    mini_printf("\tDEBUG DOOR_SM REQ: %s\n",
+                (state == DEV_STATE_ON)  ? "OPEN" :
+                (state == DEV_STATE_OFF) ? "CLOSE" : "UNKNOWN");
+
+   #endif  /* DEBUG */
 
     /* Abort any active motion immediately */
     door_stop();
@@ -126,6 +141,35 @@ void door_sm_request(dev_state_t state)
         set_motion(DOOR_MOVING_CLOSE);
     }
 }
+
+
+
+void door_sm_schedule(dev_state_t state,  uint32_t when){
+
+    (void) when;
+
+    #if 0   /* DEBUG */
+
+        mini_printf("\tDEBUG DOOR_SM SCHED: %s when=%lu\n",
+                    (state == DEV_STATE_ON)  ? "OPEN" :
+                    (state == DEV_STATE_OFF) ? "CLOSE" : "UNKNOWN",
+                    (unsigned long)when);
+
+    #endif
+
+    /* Ignore if schedule event predates last manual action */
+     if (when <= g_last_override_time)
+         return;
+
+    door_sm_request_internal(state);
+}
+
+void door_sm_request(dev_state_t state) {
+    g_last_override_time = rtc_get_epoch();
+    door_sm_request_internal(state);
+
+}
+
 
 void door_sm_tick(uint32_t now_ms)
 {

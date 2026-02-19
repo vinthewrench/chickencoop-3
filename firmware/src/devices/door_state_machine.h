@@ -80,6 +80,23 @@ void door_sm_init(void);
  */
 void door_sm_request(dev_state_t state);
 
+
+/*
+ * Request a new door state.
+ *
+ * Parameters:
+ *  - state:
+ *      DEV_STATE_ON  → OPEN
+ *      DEV_STATE_OFF → CLOSE
+ *
+ * Behavior:
+ *  - Edge-triggered
+ *  - Mid-motion requests abort current action safely
+ *  - Repeated requests for same settled state are ignored
+ */
+void door_sm_schedule(dev_state_t state,  uint32_t when);
+
+
 /*
  * Periodic service function.
  *

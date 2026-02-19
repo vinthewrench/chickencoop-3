@@ -312,6 +312,16 @@ int main(void)
                 last_d  = cached_d;
             }
 
+            uint32_t midnight_epoch =
+                rtc_epoch_from_ymdhms(
+                    cached_y,
+                    cached_mo,
+                    cached_d,
+                    0, 0, 0,
+                    0,
+                    false
+                );
+
             /* ---- Apply schedule ---- */
 
             struct reduced_state rs;
@@ -326,6 +336,7 @@ int main(void)
                     MAX_EVENTS,
                     have_sol ? &sol : NULL,
                     now_minute,
+                    midnight_epoch,
                     &rs
                 );
 

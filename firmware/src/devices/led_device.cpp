@@ -46,6 +46,7 @@ Device led_device = {
     .init      = led_init,
     .get_state = led_get_state,
     .set_state  = NULL,
+    .schedule_state  = NULL,
     .state_string = led_state_string,
     .tick         =  led_tick,
     .is_busy         = NULL

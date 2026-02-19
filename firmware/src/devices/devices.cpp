@@ -161,6 +161,27 @@ bool device_set_state_by_id(uint8_t id, dev_state_t state)
     return true;
 }
 
+
+bool device_schedule_state_by_id(uint8_t id,
+                                 dev_state_t state,
+                                 uint32_t when)
+{
+    const Device *dev = device_by_id(id);
+    if (!dev)  return false;
+
+    if(dev->schedule_state){
+        dev->schedule_state(state, when);
+        return true;
+    }
+    else if(dev->set_state){
+        dev->set_state(state);
+        return true;
+    }
+
+    return false;
+
+}
+
 bool device_get_state_by_id(uint8_t id, dev_state_t *out_state)
 {
     if (!out_state)

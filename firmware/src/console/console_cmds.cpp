@@ -646,7 +646,7 @@ static void cmd_schedule(int argc, char **argv)
                 g_cfg.latitude_e4,
                 g_cfg.longitude_e4);
 
-    mini_printf("TZ        : %d (DST %s)\n\n",
+    mini_printf("TZ        : %ld (DST %s)\n\n",
                 g_cfg.tz,
                 g_cfg.honor_dst ? "ON" : "OFF");
 
@@ -1114,17 +1114,16 @@ static void cmd_set(int argc, char **argv)
      else if (!strcmp(argv[1], "toggle")) {
          door_sm_toggle();
      }
-     else if (!strcmp(argv[1], "status")) {
-         /* no action */
-     }
      else {
          console_puts("?\n");
          return;
      }
 
-     mini_printf("door: %s  motion=%s\n",
-                 door_sm_state_string(),
-                 door_sm_motion_string());
+     console_puts("OK\n");
+
+     // mini_printf("door: %s  motion=%s\n",
+     //             door_sm_state_string(),
+     //             door_sm_motion_string());
  }
 
 

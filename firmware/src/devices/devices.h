@@ -88,7 +88,20 @@ bool device_lookup_id(const char *name, uint8_t *out_id);
  */
 bool device_set_state_by_id(uint8_t id, dev_state_t state);
 
-/*
+ /*
+  * Set device state from scheduler context.
+  *
+  * 'when' is the absolute UTC time of the governing schedule event.
+  *
+  * Returns:
+  *  - true  if device exists and supports scheduled set
+  *  - false otherwise
+  */
+ bool device_schedule_state_by_id(uint8_t id,
+                                  dev_state_t state,
+                                  uint32_t when);
+
+ /*
  * Get device state by ID.
  *
  * Behavior:
