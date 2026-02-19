@@ -26,3 +26,5 @@ void print_datetime_ampm(int y,int mo,int d,int h,int m,int s);
 //bool parse_time(const char *s, int *h, int *m, int *sec);
 
 void print_hhmm(uint16_t minutes);
+
+bool print_local_timedate();

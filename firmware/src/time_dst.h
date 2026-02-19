@@ -20,3 +20,10 @@
  *  false otherwise
  */
 bool is_us_dst(int y, int m, int d, int h);
+
+
+int utc_offset_minutes(int y, int mo, int d, int h);
+
+bool is_leap_year(int y);
+
+int days_in_month(int y, int mo);

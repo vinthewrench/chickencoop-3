@@ -1,42 +1,44 @@
-/*
- * config_events.cpp
+/**
+ * @file config_events.cpp
+ * @brief Persistent storage for declarative schedule events (sparse table).
  *
- * Project: Chicken Coop Controller
- * Purpose: Declarative schedule event storage
+ * @details
+ * This module owns the persistent event table (`g_cfg.events`) and is the sole
+ * authority for schedule intent. The table is sparse: unused slots exist and
+ * must be skipped by callers.
  *
- * Responsibilities:
- *  - Owns the persistent event table (g_cfg.events)
- *  - Provides read-only access to the sparse table
- *  - Performs ALL mutations of schedule intent
+ * @par Invariants
+ * - `refnum != 0` is the sole indicator of an active slot.
+ * - Inactive slots are fully zeroed (`refnum == 0` implies all fields cleared).
  *
- * Design rules:
- *  - This module is the single source of truth for schedule events
- *  - Any mutation MUST notify the scheduler
- *  - Read access MUST NOT have side effects
- *
- * Scheduler contract:
- *  - scheduler_touch() is called whenever the event table changes
- *  - This invalidates any cached reductions or next-event results
+ * @par Scheduler contract
+ * Any mutation of the event table MUST call `schedule_touch()` to invalidate
+ * scheduler caches and next-event reductions.
  *
  * Updated: 2026-01-08
  */
+
+#include <string.h>
 
 #include "config_events.h"
 #include "config.h"
 #include "scheduler.h"   /* schedule_touch() */
 
-/* --------------------------------------------------------------------------
- * Accessor
- * --------------------------------------------------------------------------
+
+/**
+ * @brief Returns a pointer to the full sparse event table.
  *
- * Returns:
- *  - Pointer to the full sparse event table (size MAX_EVENTS)
- *  - `count` receives the number of active events (refnum != 0)
+ * @param[out] count Optional. Receives the number of active events (`refnum != 0`).
  *
- * Notes:
- *  - The returned table contains unused slots
- *  - Caller MUST scan MAX_EVENTS and skip refnum == 0
- *  - This function is read-only and MUST NOT notify scheduler
+ * @return Pointer to the full table (size `MAX_EVENTS`).
+ *
+ * @note
+ * The returned table contains unused slots. Callers MUST scan `MAX_EVENTS`
+ * entries and skip any slot where `refnum == 0`.
+ *
+ * @warning
+ * This function is read-only and MUST NOT have side effects. In particular,
+ * it MUST NOT call `schedule_touch()`.
  */
 const Event *config_events_get(size_t *count)
 {
@@ -53,19 +55,21 @@ const Event *config_events_get(size_t *count)
     return g_cfg.events;
 }
 
-/* --------------------------------------------------------------------------
- * Add
- * --------------------------------------------------------------------------
+
+/**
+ * @brief Adds a new event to the first free slot in the sparse table.
  *
- * Inserts a new event into the first free slot.
+ * @param[in] ev Event definition to insert.
  *
- * Behavior:
- *  - Assigns a stable, non-zero refnum (index + 1)
- *  - Fails if the table is full
+ * @retval true  Event inserted successfully.
+ * @retval false `ev` is NULL or the table is full.
  *
- * Scheduler impact:
- *  - Adds new schedule intent
- *  - MUST invalidate scheduler caches
+ * @details
+ * Assigns a stable identity (`refnum`) to the inserted event. The `refnum`
+ * is computed as `(index + 1)` and is guaranteed non-zero.
+ *
+ * @note
+ * This function mutates schedule intent and MUST call `schedule_touch()`.
  */
 bool config_events_add(const Event *ev)
 {
@@ -75,10 +79,13 @@ bool config_events_add(const Event *ev)
     for (size_t i = 0; i < MAX_EVENTS; i++) {
         if (g_cfg.events[i].refnum == 0) {
 
+            /* Copy full event definition into empty slot. */
             g_cfg.events[i] = *ev;
+
+            /* Assign stable identity. */
             g_cfg.events[i].refnum = (refnum_t)(i + 1);
 
-            /* Schedule definition changed */
+            /* Schedule definition changed. */
             schedule_touch();
 
             return true;
@@ -88,19 +95,21 @@ bool config_events_add(const Event *ev)
     return false; /* table full */
 }
 
-/* --------------------------------------------------------------------------
- * Update (by refnum)
- * --------------------------------------------------------------------------
+
+/**
+ * @brief Updates an existing event selected by its refnum.
  *
- * Replaces an existing event while preserving its identity.
+ * @param[in] ref Stable identity of the event to update (must be non-zero).
+ * @param[in] ev  New event definition.
  *
- * Behavior:
- *  - refnum selects the target event
- *  - refnum is preserved across update
+ * @retval true  Event updated.
+ * @retval false Invalid arguments or `ref` not found.
  *
- * Scheduler impact:
- *  - Schedule intent has changed
- *  - MUST invalidate scheduler caches
+ * @details
+ * The event identity (`refnum`) is preserved across update.
+ *
+ * @note
+ * This function mutates schedule intent and MUST call `schedule_touch()`.
  */
 bool config_events_update_by_refnum(refnum_t ref, const Event *ev)
 {
@@ -113,9 +122,7 @@ bool config_events_update_by_refnum(refnum_t ref, const Event *ev)
             g_cfg.events[i] = *ev;
             g_cfg.events[i].refnum = ref;
 
-            /* Schedule definition changed */
             schedule_touch();
-
             return true;
         }
     }
@@ -123,19 +130,22 @@ bool config_events_update_by_refnum(refnum_t ref, const Event *ev)
     return false;
 }
 
-/* --------------------------------------------------------------------------
- * Delete (by refnum)
- * --------------------------------------------------------------------------
+
+/**
+ * @brief Deletes an event selected by its refnum.
  *
- * Removes an event from the table.
+ * @param[in] ref Stable identity of the event to delete (must be non-zero).
  *
- * Behavior:
- *  - Clears refnum to mark slot unused
- *  - Slot may be reused by future adds
+ * @retval true  Event deleted.
+ * @retval false `ref` invalid or not found.
  *
- * Scheduler impact:
- *  - Schedule intent has changed
- *  - MUST invalidate scheduler caches
+ * @details
+ * The slot is fully cleared to preserve the invariant that inactive slots are
+ * zeroed (`refnum == 0` implies all fields cleared). The slot may be reused by
+ * future inserts.
+ *
+ * @note
+ * This function mutates schedule intent and MUST call `schedule_touch()`.
  */
 bool config_events_delete_by_refnum(refnum_t ref)
 {
@@ -145,11 +155,10 @@ bool config_events_delete_by_refnum(refnum_t ref)
     for (size_t i = 0; i < MAX_EVENTS; i++) {
         if (g_cfg.events[i].refnum == ref) {
 
-            g_cfg.events[i].refnum = 0;
+            /* Fully clear slot to preserve inactive-slot invariant. */
+            memset(&g_cfg.events[i], 0, sizeof(g_cfg.events[i]));
 
-            /* Schedule definition changed */
             schedule_touch();
-
             return true;
         }
     }
@@ -157,24 +166,21 @@ bool config_events_delete_by_refnum(refnum_t ref)
     return false;
 }
 
-/* --------------------------------------------------------------------------
- * Clear
- * --------------------------------------------------------------------------
+
+/**
+ * @brief Clears all schedule events.
  *
- * Removes ALL events from the schedule.
+ * @details
+ * Fully clears all slots in the sparse table. After return, all `refnum` values
+ * are zero and all event fields are cleared.
  *
- * Behavior:
- *  - Marks all slots unused
- *
- * Scheduler impact:
- *  - Entire schedule definition replaced
- *  - MUST invalidate scheduler caches (once)
+ * @note
+ * This function mutates schedule intent and MUST call `schedule_touch()` once.
  */
 void config_events_clear(void)
 {
-    for (size_t i = 0; i < MAX_EVENTS; i++)
-        g_cfg.events[i].refnum = 0;
+    /* Zero entire table to preserve inactive-slot invariant. */
+    memset(g_cfg.events, 0, sizeof(g_cfg.events));
 
-    /* Schedule definition changed */
     schedule_touch();
 }

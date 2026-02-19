@@ -12,10 +12,15 @@
  * Updated: 2025-12-29
  */
 
+
+ #include <stdbool.h>
+
+
 #include "console_time.h"
 #include "console_io.h"
-#include <stdbool.h>
+#include "time_dst.h"
 
+#include "rtc.h"
 
 static void put_2d(int v)
 {
@@ -79,53 +84,56 @@ void print_datetime_ampm(int y,int mo,int d,int h,int m,int s)
 
 }
 
-// bool parse_time(const char *s, int *h, int *m, int *sec)
-// {
-//     int hh = 0, mm = 0, ss = 0;
-//     char ampm[3] = {0};
+bool print_local_timedate() {
+    int y, mo, d, h, m, s;
 
-//     // Try strict 24-hour: HH:MM:SS
-//     if (strlen(s) == 8 && s[2] == ':' && s[5] == ':') {
-//         for (int i = 0; i < 8; i++) {
-//             if (i == 2 || i == 5) continue;
-//             if (s[i] < '0' || s[i] > '9')
-//                 goto try_ampm;
-//         }
+    if (!rtc_time_is_set()) {
+        return false;
+    }
 
-//         hh = atoi(s);
-//         mm = atoi(s + 3);
-//         ss = atoi(s + 6);
+    /* Read UTC */
+    rtc_get_time(&y, &mo, &d, &h, &m, &s);
 
-//         if (hh < 0 || hh > 23) return false;
-//         if (mm < 0 || mm > 59) return false;
-//         if (ss < 0 || ss > 59) return false;
+    /* Convert UTC → LOCAL using minutes */
+    int offset_min = utc_offset_minutes(y, mo, d, h);
 
-//         *h = hh; *m = mm; *sec = ss;
-//         return true;
-//     }
+    int total_min = h * 60 + m + offset_min;
 
-// try_ampm:
-//     // HH:MM:SS AM|PM
-//     if (sscanf(s, "%d:%d:%d %2s", &hh, &mm, &ss, ampm) != 4)
-//         return false;
+    int yy = y;
+    int mm2 = mo;
+    int dd = d;
 
-//     if (hh < 1 || hh > 12) return false;
-//     if (mm < 0 || mm > 59) return false;
-//     if (ss < 0 || ss > 59) return false;
+    /* Handle day rollover */
+    while (total_min < 0) {
+        total_min += 1440;
+        dd--;
+        if (dd < 1) {
+            mm2--;
+            if (mm2 < 1) {
+                mm2 = 12;
+                yy--;
+            }
+            dd = days_in_month(yy, mm2);
+        }
+    }
 
-//     bool pm;
-//     if (ampm[0] == 'A' || ampm[0] == 'a')
-//         pm = false;
-//     else if (ampm[0] == 'P' || ampm[0] == 'p')
-//         pm = true;
-//     else
-//         return false;
+    while (total_min >= 1440) {
+        total_min -= 1440;
+        dd++;
+        if (dd > days_in_month(yy, mm2)) {
+            dd = 1;
+            mm2++;
+            if (mm2 > 12) {
+                mm2 = 1;
+                yy++;
+            }
+        }
+    }
 
-//     if (hh == 12)
-//         hh = pm ? 12 : 0;
-//     else if (pm)
-//         hh += 12;
+    int hh = total_min / 60;
+    int mm = total_min % 60;
 
-//     *h = hh; *m = mm; *sec = ss;
-//     return true;
-// }
+    print_datetime_ampm(yy, mm2, dd, hh, mm, s);
+
+    return true;
+}

@@ -141,36 +141,6 @@ static void ensure_cfg_loaded(void)
 
 
 /* -------------------------------------------------------------------------- */
-/* Date math                                                                  */
-/* -------------------------------------------------------------------------- */
-
-static bool is_leap_year(int y)
-{
-    if ((y % 400) == 0) return true;
-    if ((y % 100) == 0) return false;
-    return (y % 4) == 0;
-}
-
-static int days_in_month(int y, int mo)
-{
-    static const uint8_t dpm[12] =
-        {31,28,31,30,31,30,31,31,30,31,30,31};
-
-    if (mo < 1 || mo > 12) return 31;
-    if (mo == 2 && is_leap_year(y)) return 29;
-    return dpm[mo - 1];
-}
-
-static int utc_offset_minutes(int y, int mo, int d, int h)
-{
-    int dst = 0;
-
-    if (g_cfg.honor_dst && is_us_dst(y, mo, d, h))
-        dst = 60;
-
-    return g_cfg.tz * 60 + dst;
-}
-/* -------------------------------------------------------------------------- */
 /* Parsing helpers                                                            */
 /* -------------------------------------------------------------------------- */
 
@@ -408,7 +378,7 @@ static void when_print(const struct When *w, int tod_minute)
         return;
     }
 
-     case REF_SOLAR_STD_RISE:
+    case REF_SOLAR_STD_RISE:
         mini_printf("Sunrise %c%d", sign, mins);
         return;
 
@@ -1437,22 +1407,22 @@ static void cmd_event(int argc, char **argv)
         for (size_t i = 0; i < rcount; i++) {
 
             const Event *ev = r[i].ev;
+
+            /* r[i].minute is UTC minute-of-day (0..1439), canonical */
             uint16_t utc_minute = r[i].minute;
 
-            /* ---- Convert UTC minute → LOCAL minute ---- */
+            /* Convert UTC minute-of-day -> LOCAL minute-of-day for display */
+            int y, mo, d, utc_h_now;
+            rtc_get_time(&y, &mo, &d, &utc_h_now, NULL, NULL);  /* UTC */
 
-            int y, mo, d, dummy;
-            rtc_get_time(&y, &mo, &d, &dummy, NULL, NULL);
+            /* Use the event's UTC hour to select the correct offset (DST rules live here) */
+            int event_utc_hour = (int)(utc_minute / 60);
+            int offset_min = utc_offset_minutes(y, mo, d, event_utc_hour);
 
-            /* Compute offset using the event's UTC hour */
-            int event_hour = utc_minute / 60;
-            int offset_min = utc_offset_minutes(y, mo, d, event_hour);
-
-            int local_minute = utc_minute + offset_min;
+            int local_minute = (int)utc_minute + offset_min;
             local_minute = (local_minute + 1440) % 1440;
 
-            /* ---- Device/state ---- */
-
+            /* Device/state */
             const char *dev_name = "?";
             const char *state    = "?";
 
@@ -1463,8 +1433,7 @@ static void cmd_event(int argc, char **argv)
 
             device_get_state_string(ev->device_id, st, &state);
 
-            /* ---- Print LOCAL time ---- */
-
+            /* Print LOCAL time */
             mini_printf("%02u:%02u  #",
                         (unsigned)(local_minute / 60),
                         (unsigned)(local_minute % 60));
@@ -1477,7 +1446,7 @@ static void cmd_event(int argc, char **argv)
             print_padded(state, 7);
             console_putc(' ');
 
-            when_print(&ev->when, local_minute);
+            when_print(&ev->when, (uint16_t)local_minute);
             console_putc('\n');
         }
         return;
@@ -1649,13 +1618,12 @@ static void cmd_event(int argc, char **argv)
 
      add_event:
          ev.refnum = 0;
-
          if (!config_events_add(&ev)) {
              console_puts("ERROR\n");
              return;
          }
 
-         g_cfg_dirty = true;
+        g_cfg_dirty = true;
          console_puts("OK (event added, not saved)\n");
          return;
      }
@@ -1684,25 +1652,40 @@ static void cmd_sleep(int argc, char **argv)
     /* ==========================================================
      * sleep next
      * ========================================================== */
-    if (!strcmp(argv[1], "next")) {
+     if (!strcmp(argv[1], "next")) {
 
-        uint16_t now_min = rtc_minutes_since_midnight();
+         uint16_t now_min = rtc_minutes_since_midnight();
 
-        uint16_t next_min;
-        if (!scheduler_next_event_minute(&next_min)) {
-            console_puts("sleep: no scheduled events\n");
-            return;
-        }
+         uint16_t next_min;
+         if (!scheduler_next_event_minute(&next_min)) {
+             console_puts("sleep: no scheduled events\n");
+             return;
+         }
 
-        if (next_min <= now_min)
-            next_min = (uint16_t)((now_min + 1u) % 1440u);
+         /* Compute modular delta */
+         uint16_t delta =
+             (uint16_t)((next_min + 1440u - now_min) % 1440u);
 
-        target = next_min;
+         /* Avoid zero-minute sleep */
+         if (delta == 0)
+             delta = 1440u;
 
-        mini_printf("sleep: until %02u:%02u\n",
-                    (unsigned)(target / 60u),
-                    (unsigned)(target % 60u));
-    }
+         target = next_min;
+
+         int y, mo, d, dummy;
+         rtc_get_time(&y, &mo, &d, &dummy, NULL, NULL);
+
+         /* target is UTC minute-of-day */
+         int event_hour = target / 60;
+         int offset_min = utc_offset_minutes(y, mo, d, event_hour);
+
+         int local_minute = target + offset_min;
+         local_minute = (local_minute + 1440) % 1440;
+
+         mini_printf("sleep: until %02u:%02u\n",
+                     (unsigned)(local_minute / 60u),
+                     (unsigned)(local_minute % 60u));
+     }
     else
     {
         /* ==========================================================
@@ -1907,6 +1890,7 @@ typedef struct {
       "event add <device> <on|off> dawn    +/-MIN\n" \
       "event add <device> <on|off> dusk    +/-MIN\n" \
       "event delete <refnum>\n" \
+      "event clear\n" \
     ) \
     \
     X(led, 1, 1, cmd_led, \

@@ -89,30 +89,6 @@ bool rtc_alarm_set_minute_of_day(uint16_t minute_of_day)
     return rtc_alarm_set_hm(h, m);
 }
 
-/* --------------------------------------------------------------------------
- * Calendar Helpers
- * -------------------------------------------------------------------------- */
-
-static bool is_leap_year(int y)
-{
-    if ((y % 400) == 0) return true;
-    if ((y % 100) == 0) return false;
-    return (y % 4) == 0;
-}
-
-static int days_in_month(int y, int mo)
-{
-    static const uint8_t dpm[12] =
-        {31,28,31,30,31,30,31,31,30,31,30,31};
-
-    if (mo < 1 || mo > 12)
-        return 31;
-
-    if (mo == 2 && is_leap_year(y))
-        return 29;
-
-    return dpm[mo - 1];
-}
 
 /* --------------------------------------------------------------------------
  * Epoch Conversion

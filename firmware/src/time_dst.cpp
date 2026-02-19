@@ -14,7 +14,7 @@
 
 #include <stdbool.h>
 #include "time_dst.h"
-
+#include "config.h"
 
 /*
  * US Daylight Saving Time determination.
@@ -61,4 +61,39 @@ bool is_us_dst(int y, int m, int d, int h)
     }
 
     return false;
+}
+
+
+
+int utc_offset_minutes(int y, int mo, int d, int h)
+{
+    int dst = 0;
+
+    if (g_cfg.honor_dst && is_us_dst(y, mo, d, h))
+        dst = 60;
+
+    return g_cfg.tz * 60 + dst;
+}
+
+
+
+/* -------------------------------------------------------------------------- */
+/* Date math                                                                  */
+/* -------------------------------------------------------------------------- */
+
+bool is_leap_year(int y)
+{
+    if ((y % 400) == 0) return true;
+    if ((y % 100) == 0) return false;
+    return (y % 4) == 0;
+}
+
+int days_in_month(int y, int mo)
+{
+    static const uint8_t dpm[12] =
+        {31,28,31,30,31,30,31,31,30,31,30,31};
+
+    if (mo < 1 || mo > 12) return 31;
+    if (mo == 2 && is_leap_year(y)) return 29;
+    return dpm[mo - 1];
 }

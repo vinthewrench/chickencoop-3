@@ -175,9 +175,9 @@ isp:
 # Preserves EEPROM
 # ------------------------------------------------------------
 
-flash-part: $(PROJECT).hex
+flash-wipe: $(PROJECT).hex
 	$(AVRDUDE) -c $(PROGRAMMER) -P $(PORT) -p $(AVRDUDE_MCU) \
-		-B $(ISP_BITCLOCK) -D \
+		-B $(ISP_BITCLOCK) -e \
 		-U flash:w:"$<":i
 
 
@@ -265,4 +265,4 @@ static:
 # ------------------------------------------------------------
 
 
-.PHONY: all clean flash flash-part set-fuses check-fuses size static size isp
+.PHONY: all clean flash flash-wipe set-fuses check-fuses size static size isp

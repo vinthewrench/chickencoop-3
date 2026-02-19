@@ -55,34 +55,30 @@ void console_init(void)
 
     console_terminal_init();
 
-        console_puts("Chicken Coop Controller ");
-        console_puts(PROJECT_VERSION);
-        console_puts("\n");
+        mini_printf("Chicken Coop Controller %s\n",PROJECT_VERSION);
+        // console_puts(PROJECT_VERSION);
+        // console_puts("\n");
 
     // Load configuration
     bool cfg_ok = config_load(&g_cfg);
     if (!cfg_ok) {
-        console_puts_str(CONSOLE_STR("WARNING: CONFIG INVALID, USING DEFAULTS\n"));
+        mini_printf("WARNING: CONFIG INVALID, USING DEFAULTS\n");
     }
 
     // Show current time status
-    if (rtc_time_is_set()) {
-        int y, mo, d, h, m, s;
-        rtc_get_time(&y, &mo, &d, &h, &m, &s);
-        console_puts_str(CONSOLE_STR("TIME: "));
-        print_datetime_ampm(y, mo, d, h, m, s);
-        console_putc('\n');
-    } else {
-        console_puts_str(CONSOLE_STR("TIME: NOT SET\n"));
-        console_puts_str(CONSOLE_STR("Use: set date YYYY-MM-DD\n"));
-        console_puts_str(CONSOLE_STR("     set time HH:MM:SS AM|PM\n"));
+    if (!print_local_timedate()){
+
+
+
+        mini_printf("TIME: NOT SET\n");
+        mini_printf("Use: set date YYYY-MM-DD\n");
+        mini_printf("     set time HH:MM:SS AM|PM\n");
     }
 
-    console_putc('\n');
+    mini_printf("\n\n> ");
 
     // Reset input state
     idx = 0;
-     console_puts_str(CONSOLE_STR("> "));
 }
 
 

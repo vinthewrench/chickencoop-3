@@ -61,9 +61,10 @@ bool resolve_when(const struct When* when,
 
     int32_t t = base + when->offset_minutes;
 
-    /* No cross-midnight logic allowed */
-    if (t < 0 || t >= 1440)
-        return false;
+    /* Normalize to 0–1439 UTC (modular day) */
+    t %= 1440;
+    if (t < 0)
+        t += 1440;
 
     *out_minute = (uint16_t)t;
     return true;
