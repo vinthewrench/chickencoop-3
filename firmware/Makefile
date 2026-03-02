@@ -114,10 +114,12 @@ SRCS := \
 	platform/config_eeprom.cpp \
 	platform/config_sw_avr.cpp \
 	platform/system_sleep_avr.cpp \
-	platform/rtc.cpp \
+	platform/rtc_DS3231.cpp \
 	platform/uptime.cpp \
 	platform/uart.cpp \
 	platform/gpio_avr.cpp
+
+	#	platform/rtc_PCF8523T.cpp \
 
 #foo_device is sample code to add a new device
 #	src/devices/foo_device.cpp \

@@ -134,6 +134,18 @@ bool rtc_validate_at_boot(void)
     return true;
 }
 
+static bool rtc_clear_oscillator_stop_flag(void)
+{
+    uint8_t status;
+
+    if (!i2c_read(DS3231_ADDR7, REG_STATUS, &status, 1))
+        return false;
+
+    status &= ~STAT_OSF;
+
+    return i2c_write(DS3231_ADDR7, REG_STATUS, &status, 1);
+}
+
 /* ============================================================================
  * TIME ACCESS
  * ========================================================================== */
@@ -167,7 +179,10 @@ bool rtc_set_time(int y, int mo, int d,
     buf[5] = bin_to_bcd((uint8_t)mo);
     buf[6] = bin_to_bcd((uint8_t)(y % 100));
 
-    return i2c_write(DS3231_ADDR7, REG_SECONDS, buf, sizeof(buf));
+    if (!i2c_write(DS3231_ADDR7, REG_SECONDS, buf, sizeof(buf)))
+        return false;
+
+     return rtc_clear_oscillator_stop_flag();
 }
 
 /* ============================================================================
