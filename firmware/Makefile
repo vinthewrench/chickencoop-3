@@ -199,7 +199,9 @@ flash: $(PROJECT).hex
 
 LFUSE  := 0xE2
 HFUSE  := 0xD1
-EFUSE  := 0xFD   # BOD 2.7V
+
+# EFUSE  := 0xFD   BOD 2.7V
+EFUSE  := 0xFD
 
 set-fuses:
 	$(AVRDUDE) -c $(PROGRAMMER) -P $(PORT) -p $(AVRDUDE_MCU) -B 200 \
