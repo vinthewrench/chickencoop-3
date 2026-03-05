@@ -1,186 +1,157 @@
-# Chicken Coop Controller (v3.0)
+# Chicken Coop Controller 3.0
 
-**Author:** vinthewrench  
-**Repository:** https://github.com/vinthewrench/chickencoop-3
+**Build your own automated, off-grid chicken coop door**
 
-This project is a minimal, reliable, ultra-low-power controller for a chicken coop door.  
-It opens at sunrise, closes and locks at sunset, runs completely offline, and requires no sensors, cloud services, or GPS.
+A minimal, ultra-reliable, battery-powered AVR controller that opens the door at sunrise, closes and locks it at sunset — completely offline, no sensors, no Wi-Fi, no cloud, no GPS.
 
-Like all my designs, the complete project is available here including firmware, schematics, and PCB layout.
+Designed for a mobile pasture-raised coop that moves with cattle and sheep. Runs for months on a small 12 V battery (solar is only a top-up). Survives Arkansas mud, ice, dust, coyotes, and power failures.
 
-- **Software License:** MIT
-- **Hardware License:** CERN-OHL-P v2
+Full 18-page design story, sunrise math, and lessons learned here:  
+https://www.vinthewrench.com/<update this>
 
-You are free to study, modify, and build your own version.
+### Features
 
-Automate a chicken coop door for off-grid or remote installations.
+- True sunrise/sunset calculation using location + date (NO light sensor)
+- Gravity-hung door with Progressive Automations PA-14 actuator
+- Automatic locking bar (automotive-style actuator) to stop predators
+- Manual override button with bi-color LED status
+- Ultra-low sleep current (~355 µA) → months on a 7–22 Ah SLA/AGM battery
+- One-time setup via serial console (no phone app or internet required)
+- Two extra latching relays for electric fence or lights (zero holding current)
+- Handles power failures, manual overrides, and reboots correctly
+- Fully open-source (firmware + schematics + PCB)
 
-Design goals:
+### Licenses
 
-- Fully offline operation
-- One-time configuration via serial console
-- Months of runtime on a small 12-volt battery
-- Deterministic and inspectable system behavior
-- Minimal hardware for reliability
+- Firmware: MIT
+- Hardware (schematics + PCB): CERN-OHL-P v2
 
-The controller is designed for a **fixed geographic location** using **local standard time (no automatic DST).**
+You are free to study, modify, and build your own.
 
- 
-# How It Works
+---
 
-### Initial Setup
+## How It Works
 
-Connect a serial console and configure:
+1. The DS3231M RTC wakes the ATmega1284P at the next event (sunrise or sunset).
+2. Firmware calculates exact sunrise/sunset from latitude, longitude, and date.
+3. If needed, it drives the door actuator and lock.
+4. It sets the next alarm and goes back to deep sleep.
 
-- Date and time
-- Latitude and longitude
-- Time zone offset
-- Schedule offsets
+No drift, no false triggers from clouds, headlights, or moving the coop.
 
-Configuration is stored in EEPROM.
- 
-### Normal Operation
+Manual button press overrides the schedule until the next natural event (sunrise/sunset). The system never fights you.
 
-The MCU spends most of its time in deep sleep.
+---
 
-1. RTC alarm wakes the MCU
-2. Current time is read
-3. Sunrise / sunset are calculated
-4. If required, the door actuator runs
-5. Next alarm is programmed
-6. MCU returns to sleep
+## Hardware
 
-Typical operation:
+Custom 100 × 130 mm PCB (all through-hole friendly where possible).
 
-- Sunrise → open door  
-- Sunset → close door + pulse lock  
- 
-### Manual Override
+### Major Components
 
-Pressing the illuminated button toggles the door state:
+| Component        | Part                          | Notes                                         |
+| ---------------- | ----------------------------- | --------------------------------------------- |
+| MCU              | ATmega1284P-PU (DIP-40)       | 128 KB flash, easy ISP, repairable            |
+| RTC              | DS3231M                       | Integrated resonator, temperature compensated |
+| Door Actuator    | Progressive Automations PA-14 | IP65, internal limits, stainless rod          |
+| Lock Actuator    | 12 V automotive door lock     | Pulses only (200–300 ms)                      |
+| Motor Drivers    | 2 × VNH7100BAS                | 15 A H-bridges with thermal copper pours      |
+| 5 V Regulator    | Pololu D24V22F5               | High efficiency, low quiescent current        |
+| Button           | Illuminated bi-color switch   | Red/Green status + override                   |
+| Relays           | 2 × DSP1-L2-DC12V             | Latching (zero holding current)               |
+| Relay Driver     | ULN2003A                      | Drives relays + optional loads                |
+| Optional Console | SparkFun DEV-15096            | USB-to-serial for setup (removable)           |
 
-- open
-- close
-- lock/unlock
- 
-### Status
+Power: Single 12 V battery (SLA/AGM recommended). Direct 12 V to motors, regulated 5 V for logic.
 
-The button’s bi-color LED indicates:
+---
 
-- motion
-- locked state
-- configuration required
-- fault conditions
+## Firmware
 
- 
-# Major Components
+Written in plain C for avr-gcc. No Arduino framework, no hidden magic.
 
-| Component | Part | Notes |
-|---|---|---|
-| MCU | ATmega1284P-PU (DIP-40) | 128 KB flash |
-| RTC | DS3231M | I²C RTC with integrated resonator |
-| Door Actuator | PA-14 linear actuator | Internal limit switches |
-| Lock Actuator | 12-V automotive door lock | Pulsed only |
-| Motor Drivers | 2 × VNH7100BASTR | H-bridge |
-| 5V Regulator | Pololu D24V22F5 | Efficient buck converter |
-| Button | FL12DRG5 | Bi-color illuminated switch |
-| Relay Driver | ULN2003A | Drives latching relays |
-| Relays | DSP1-L2-DC12V | 12-V latching relays |
-| Battery | 12V SLA / AGM | 7–22 Ah |
+Typical workflow:
 
- 
-# MCU
+```bash
+cd firmware
+make set-fuses
+make
+make flash          # or use your programmer
+```
 
-**ATmega1284P-PU**
+Full build system, clean targets, and EEPROM config handling included.
 
-Chosen for:
+---
 
-- large flash and RAM
-- simple architecture
-- predictable behavior
-- easy ISP programming
-- DIP package for repairability
+## Setup & Configuration
 
-Clock source: **internal 8 MHz RC oscillator**
+1. Flip the **CONFIG switch** to ON (this puts the controller into console mode).
+2. Connect the optional SparkFun USB-to-serial module (or any 5 V TTL serial).
+3. Open a terminal (38400 baud).
+4. Set date/time, latitude, longitude, timezone offset, and schedule offsets.
+5. Flip the **CONFIG switch** back to OFF when done.
+6. Remove the module — the controller no longer needs it.
 
-Programming: **ISP**
+All settings stored in EEPROM. No re-configuration unless you move to a new location.
 
- 
-# Real Time Clock
+---
 
-**DS3231M**
+## Using the CONFIG Switch & Console
 
-The controller uses the DS3231M as its sole time reference.
+The physical **CONFIG switch** on the board toggles between normal low-power run mode and console configuration mode. When flipped to ON, the MCU stays awake, enables the serial console, and allows full setup/debug without sleeping. Flip back to OFF to resume automatic scheduling and deep sleep.
 
-Unlike many RTC chips, the DS3231M integrates its own resonator, eliminating the need for an external 32.768 kHz watch crystal. This removes layout sensitivity and mechanical fragility from the design.
+**Configuration steps:**
 
-For equipment that lives outside and gets dragged around a pasture, robustness matters more than saving a few microamps.
+1. Flip CONFIG to ON.
+2. Connect serial (38400 baud) and type commands.
+3. Use `set` to configure, `event add` for schedules, `save` to commit.
+4. Flip CONFIG to OFF.
 
-# Sunrise / Sunset Computation
+**What you need to set (minimum for basic operation):**
 
-The controller computes sunrise and sunset locally using the configured latitude, longitude, and date.
+- Date and time (`set date YYYY-MM-DD`, `set time HH:MM[:SS]`)
+- Location (`set lat +/-DD.DDDD`, `set lon +/-DDD.DDDD`)
+- Timezone (`set tz +/-HH`, `set dst on|off`)
+- Events (`event add door on sunrise +0`, `event add door off sunset -15`, etc. for lock/relays)
 
-The algorithm is a simplified NOAA / NREL model.
+**Key commands:**
+| Command | What it does |
+|----------------------------------|--------------|
+| `help` | List all commands |
+| `config` | Show current settings |
+| `set date YYYY-MM-DD` | Set date |
+| `set time HH:MM[:SS]` | Set time (local) |
+| `set lat +/-DD.DDDD` | Set latitude |
+| `set lon +/-DDD.DDDD` | Set longitude |
+| `set tz +/-HH` | Set timezone offset |
+| `set dst on\|off` | Enable/disable DST |
+| `event add ...` | Add door open/close events (sunrise/sunset or fixed time) |
+| `save` | Commit everything to EEPROM |
+| `schedule` | Show today’s full schedule |
+| `solar` | Show sunrise/sunset |
+| `door open\|close\|toggle` | Manual door test |
+| `lock engage\|release` | Manual lock test |
 
-Typical accuracy:
+Type `help` for full list. Changes are RAM-only until `save`.
 
-**±2–5 minutes**
+---
 
-No network, GPS, or sensors are required.
+## Repository Contents
 
-# Actuator Control
+- /firmware/ — AVR source + Makefile
+- /hardware/ — KiCad schematics + PCB layout
 
-Two **VNH7100BAS H-bridges** drive:
+---
 
-- the door actuator
-- the locking mechanism
+## Typical Daily Workflow (after initial setup)
 
-Control philosophy:
+The controller just works. You walk out once a day to collect eggs.
 
-- no external sensors
-- time-based actuation
-- mechanical limits inside the actuator
-- timeout protection
+---
 
-Lock pulses are typically **200–300 ms**.
- 
- # Optional Outputs
+## Links & Resources
 
-Two **DSP1-L2-DC12V latching relays** are included for optional loads such as:
+- Full article: https://www.vinthewrench.com/<update>
+- Buy the exact actuator: Progressive Automations PA-14 (PA-01-12-56-N-12VDC model)
 
-- electric fence
-- coop lighting
-- future accessories
-
-Because they are latching relays they draw **no holding current**.
-
-They are driven from the MCU through a **ULN2003A**.
-
-# Power System
-
-The system runs from a **single 12-volt battery**.
-
-### Direct 12V Loads
-- door actuator
-- lock actuator
-
-### Logic Supply
-A **Pololu D24V22F5 buck regulator** produces 5 V for the MCU and logic.
-
-Typical sleep current:
-
-**~355 µA**
-
-This allows **months of operation on a small SLA battery.**
-
-# Wake / Sleep Strategy
-
-The MCU operates almost entirely in **power-down sleep mode**.
-
-Wake sources:
-
-- RTC alarm interrupt
-- button press
-
-After servicing the event the MCU immediately returns to sleep.
-
+Questions? Open an issue or find me on X @vinthewrench.
