@@ -359,8 +359,8 @@ int main(void)
         uint16_t next_min;
         uint16_t wake_min;
 
-        if (scheduler_next_event_minute(&next_min))
-            wake_min = strictly_future_minute(now_minute, next_min);
+        if (scheduler_next_event_minute(now_minute, &next_min))
+            wake_min = next_min;
         else
             wake_min = next_minute(now_minute);
 

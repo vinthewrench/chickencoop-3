@@ -139,15 +139,24 @@ void schedule_touch(void);
  * -------------------------------------------------------------------------- */
 
 /*
- * Find the next scheduled event minute for TODAY.
+ * Find the next scheduled event minute.
+ *
+ * Parameters:
+ *   now_minute  - current UTC minute-of-day (0..1439)
  *
  * Returns:
- *  - true  → out_minute set to minute-of-day (0..1439)
- *  - false → no future events today
+ *   true  → out_minute set to the next event minute-of-day (0..1439)
+ *   false → no valid events exist
+ *
+ * Behavior:
+ *   - Finds the earliest event strictly after now_minute
+ *   - If no future event exists today, wraps to the earliest event tomorrow
+ *   - Ignores empty slots (refnum == 0)
+ *   - Ignores events that fail resolve_when()
  *
  * Notes:
- *  - Does NOT wrap to tomorrow
- *  - Ignores disabled events
- *  - Ignores events that fail resolve_when()
+ *   - All times are UTC minute-of-day
+ *   - Solar resolution uses cached scheduler solar context
  */
-bool scheduler_next_event_minute(uint16_t *out_minute);
+bool scheduler_next_event_minute(uint16_t now_minute,
+                                 uint16_t *out_minute);

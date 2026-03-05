@@ -1648,43 +1648,40 @@ static void cmd_sleep(int argc, char **argv)
 
     uint16_t target = 0;
 
-    /* ==========================================================
-     * sleep next
-     * ========================================================== */
-     if (!strcmp(argv[1], "next")) {
+    if (!strcmp(argv[1], "next")) {
 
-         uint16_t now_min = rtc_minutes_since_midnight();
+        uint16_t now_min = rtc_minutes_since_midnight();
 
-         uint16_t next_min;
-         if (!scheduler_next_event_minute(&next_min)) {
-             console_puts("sleep: no scheduled events\n");
-             return;
-         }
+        uint16_t next_min;
+        if (!scheduler_next_event_minute(now_min, &next_min)) {
+            console_puts("sleep: no scheduled events\n");
+            return;
+        }
 
-         /* Compute modular delta */
-         uint16_t delta =
-             (uint16_t)((next_min + 1440u - now_min) % 1440u);
+        /* Compute modular delta */
+        uint16_t delta =
+            (uint16_t)((next_min + 1440u - now_min) % 1440u);
 
-         /* Avoid zero-minute sleep */
-         if (delta == 0)
-             delta = 1440u;
+        /* Avoid zero-minute sleep */
+        if (delta == 0)
+            delta = 1440u;
 
-         target = next_min;
+        target = next_min;
 
-         int y, mo, d, dummy;
-         rtc_get_time(&y, &mo, &d, &dummy, NULL, NULL);
+        int y, mo, d, dummy;
+        rtc_get_time(&y, &mo, &d, &dummy, NULL, NULL);
 
-         /* target is UTC minute-of-day */
-         int event_hour = target / 60;
-         int offset_min = utc_offset_minutes(y, mo, d, event_hour);
+        /* target is UTC minute-of-day */
+        int event_hour = target / 60;
+        int offset_min = utc_offset_minutes(y, mo, d, event_hour);
 
-         int local_minute = target + offset_min;
-         local_minute = (local_minute + 1440) % 1440;
+        int local_minute = target + offset_min;
+        local_minute = (local_minute + 1440) % 1440;
 
-         mini_printf("sleep: until %02u:%02u\n",
-                     (unsigned)(local_minute / 60u),
-                     (unsigned)(local_minute % 60u));
-     }
+        mini_printf("sleep: until %02u:%02u\n",
+                    (unsigned)(local_minute / 60u),
+                    (unsigned)(local_minute % 60u));
+    }
     else
     {
         /* ==========================================================

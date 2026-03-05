@@ -1,0 +1,227 @@
+diff --git a/firmware/Makefile b/firmware/Makefile
+index a08e2ac..4062e31 100644
+--- a/firmware/Makefile
++++ b/firmware/Makefile
+@@ -18,7 +18,7 @@
+ # Project Configuration
+ # ------------------------------------------------------------
+ 
+-PROJECT_VERSION := "2.9.0"
++PROJECT_VERSION := "2.9.1"
+ 
+ PROJECT := coop_firmware
+ MCU     := atmega1284p
+@@ -68,6 +68,7 @@ CXXFLAGS := \
+ 	-ffunction-sections \
+ 	-fdata-sections \
+ 	-fno-exceptions \
++	-Wunused-function \
+ 	-fno-rtti \
+ 	-std=gnu++17 \
+ 	-Isrc \
+diff --git a/firmware/main_firmware.cpp b/firmware/main_firmware.cpp
+index b8af00e..00835b9 100644
+--- a/firmware/main_firmware.cpp
++++ b/firmware/main_firmware.cpp
+@@ -359,8 +359,8 @@ int main(void)
+         uint16_t next_min;
+         uint16_t wake_min;
+ 
+-        if (scheduler_next_event_minute(&next_min))
+-            wake_min = strictly_future_minute(now_minute, next_min);
++        if (scheduler_next_event_minute(now_minute, &next_min))
++            wake_min = next_min;
+         else
+             wake_min = next_minute(now_minute);
+ 
+diff --git a/firmware/src/console/console_cmds.cpp b/firmware/src/console/console_cmds.cpp
+index c514df9..0639120 100644
+--- a/firmware/src/console/console_cmds.cpp
++++ b/firmware/src/console/console_cmds.cpp
+@@ -1648,43 +1648,40 @@ static void cmd_sleep(int argc, char **argv)
+ 
+     uint16_t target = 0;
+ 
+-    /* ==========================================================
+-     * sleep next
+-     * ========================================================== */
+-     if (!strcmp(argv[1], "next")) {
++    if (!strcmp(argv[1], "next")) {
+ 
+-         uint16_t now_min = rtc_minutes_since_midnight();
++        uint16_t now_min = rtc_minutes_since_midnight();
+ 
+-         uint16_t next_min;
+-         if (!scheduler_next_event_minute(&next_min)) {
+-             console_puts("sleep: no scheduled events\n");
+-             return;
+-         }
++        uint16_t next_min;
++        if (!scheduler_next_event_minute(now_min, &next_min)) {
++            console_puts("sleep: no scheduled events\n");
++            return;
++        }
+ 
+-         /* Compute modular delta */
+-         uint16_t delta =
+-             (uint16_t)((next_min + 1440u - now_min) % 1440u);
++        /* Compute modular delta */
++        uint16_t delta =
++            (uint16_t)((next_min + 1440u - now_min) % 1440u);
+ 
+-         /* Avoid zero-minute sleep */
+-         if (delta == 0)
+-             delta = 1440u;
++        /* Avoid zero-minute sleep */
++        if (delta == 0)
++            delta = 1440u;
+ 
+-         target = next_min;
++        target = next_min;
+ 
+-         int y, mo, d, dummy;
+-         rtc_get_time(&y, &mo, &d, &dummy, NULL, NULL);
++        int y, mo, d, dummy;
++        rtc_get_time(&y, &mo, &d, &dummy, NULL, NULL);
+ 
+-         /* target is UTC minute-of-day */
+-         int event_hour = target / 60;
+-         int offset_min = utc_offset_minutes(y, mo, d, event_hour);
++        /* target is UTC minute-of-day */
++        int event_hour = target / 60;
++        int offset_min = utc_offset_minutes(y, mo, d, event_hour);
+ 
+-         int local_minute = target + offset_min;
+-         local_minute = (local_minute + 1440) % 1440;
++        int local_minute = target + offset_min;
++        local_minute = (local_minute + 1440) % 1440;
+ 
+-         mini_printf("sleep: until %02u:%02u\n",
+-                     (unsigned)(local_minute / 60u),
+-                     (unsigned)(local_minute % 60u));
+-     }
++        mini_printf("sleep: until %02u:%02u\n",
++                    (unsigned)(local_minute / 60u),
++                    (unsigned)(local_minute % 60u));
++    }
+     else
+     {
+         /* ==========================================================
+diff --git a/firmware/src/scheduler.cpp b/firmware/src/scheduler.cpp
+index ee4a3e0..8b8fd6e 100644
+--- a/firmware/src/scheduler.cpp
++++ b/firmware/src/scheduler.cpp
+@@ -160,25 +160,26 @@ void schedule_touch(void)
+  *  - No side effects
+  *  - No mutation
+  */
+-bool scheduler_next_event_minute(uint16_t *out_minute)
++bool scheduler_next_event_minute(uint16_t now_minute,
++                                 uint16_t *out_minute)
+ {
+     if (!out_minute)
+         return false;
+ 
++    now_minute %= 1440u;
++
++
+     size_t used = 0;
+     const Event *events = config_events_get(&used);
+ 
+-    if (!events || used == 0)
++    if (!events)
+         return false;
+ 
+     bool found = false;
+     uint16_t best = 0;
+ 
+-    /*
+-     * Scan sparse event table.
+-     * refnum == 0 means unused slot.
+-     */
+     for (size_t i = 0; i < MAX_EVENTS; i++) {
++
+         const Event *ev = &events[i];
+ 
+         if (ev->refnum == 0)
+@@ -190,16 +191,40 @@ bool scheduler_next_event_minute(uint16_t *out_minute)
+                           &minute))
+             continue;
+ 
+-        /*
+-         * Choose earliest resolvable minute today.
+-         * (No wrap to tomorrow.)
+-         */
++        /* must be strictly in the future */
++        if (minute <= now_minute)
++            continue;
++
+         if (!found || minute < best) {
+             best = minute;
+             found = true;
+         }
+     }
+ 
++    /* if nothing left today, wrap to earliest tomorrow */
++
++    if (!found) {
++
++        for (size_t i = 0; i < MAX_EVENTS; i++) {
++
++            const Event *ev = &events[i];
++
++            if (ev->refnum == 0)
++                continue;
++
++            uint16_t minute;
++            if (!resolve_when(&ev->when,
++                              g_scheduler.have_sol ? &g_scheduler.sol : NULL,
++                              &minute))
++                continue;
++
++            if (!found || minute < best) {
++                best = minute;
++                found = true;
++            }
++        }
++    }
++
+     if (!found)
+         return false;
+ 
+diff --git a/firmware/src/scheduler.h b/firmware/src/scheduler.h
+index d744689..a51621f 100644
+--- a/firmware/src/scheduler.h
++++ b/firmware/src/scheduler.h
+@@ -139,15 +139,24 @@ void schedule_touch(void);
+  * -------------------------------------------------------------------------- */
+ 
+ /*
+- * Find the next scheduled event minute for TODAY.
++ * Find the next scheduled event minute.
++ *
++ * Parameters:
++ *   now_minute  - current UTC minute-of-day (0..1439)
+  *
+  * Returns:
+- *  - true  → out_minute set to minute-of-day (0..1439)
+- *  - false → no future events today
++ *   true  → out_minute set to the next event minute-of-day (0..1439)
++ *   false → no valid events exist
++ *
++ * Behavior:
++ *   - Finds the earliest event strictly after now_minute
++ *   - If no future event exists today, wraps to the earliest event tomorrow
++ *   - Ignores empty slots (refnum == 0)
++ *   - Ignores events that fail resolve_when()
+  *
+  * Notes:
+- *  - Does NOT wrap to tomorrow
+- *  - Ignores disabled events
+- *  - Ignores events that fail resolve_when()
++ *   - All times are UTC minute-of-day
++ *   - Solar resolution uses cached scheduler solar context
+  */
+-bool scheduler_next_event_minute(uint16_t *out_minute);
++bool scheduler_next_event_minute(uint16_t now_minute,
++                                 uint16_t *out_minute);

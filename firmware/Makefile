@@ -18,7 +18,7 @@
 # Project Configuration
 # ------------------------------------------------------------
 
-PROJECT_VERSION := "2.9.0"
+PROJECT_VERSION := "2.9.1"
 
 PROJECT := coop_firmware
 MCU     := atmega1284p
@@ -68,6 +68,7 @@ CXXFLAGS := \
 	-ffunction-sections \
 	-fdata-sections \
 	-fno-exceptions \
+	-Wunused-function \
 	-fno-rtti \
 	-std=gnu++17 \
 	-Isrc \

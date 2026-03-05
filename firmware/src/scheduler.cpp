@@ -160,25 +160,26 @@ void schedule_touch(void)
  *  - No side effects
  *  - No mutation
  */
-bool scheduler_next_event_minute(uint16_t *out_minute)
+bool scheduler_next_event_minute(uint16_t now_minute,
+                                 uint16_t *out_minute)
 {
     if (!out_minute)
         return false;
 
+    now_minute %= 1440u;
+
+
     size_t used = 0;
     const Event *events = config_events_get(&used);
 
-    if (!events || used == 0)
+    if (!events)
         return false;
 
     bool found = false;
     uint16_t best = 0;
 
-    /*
-     * Scan sparse event table.
-     * refnum == 0 means unused slot.
-     */
     for (size_t i = 0; i < MAX_EVENTS; i++) {
+
         const Event *ev = &events[i];
 
         if (ev->refnum == 0)
@@ -190,13 +191,37 @@ bool scheduler_next_event_minute(uint16_t *out_minute)
                           &minute))
             continue;
 
-        /*
-         * Choose earliest resolvable minute today.
-         * (No wrap to tomorrow.)
-         */
+        /* must be strictly in the future */
+        if (minute <= now_minute)
+            continue;
+
         if (!found || minute < best) {
             best = minute;
             found = true;
+        }
+    }
+
+    /* if nothing left today, wrap to earliest tomorrow */
+
+    if (!found) {
+
+        for (size_t i = 0; i < MAX_EVENTS; i++) {
+
+            const Event *ev = &events[i];
+
+            if (ev->refnum == 0)
+                continue;
+
+            uint16_t minute;
+            if (!resolve_when(&ev->when,
+                              g_scheduler.have_sol ? &g_scheduler.sol : NULL,
+                              &minute))
+                continue;
+
+            if (!found || minute < best) {
+                best = minute;
+                found = true;
+            }
         }
     }
 
