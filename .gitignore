@@ -69,3 +69,4 @@ firmware/build/
 *.tgz
 
 coop.cfg
+hw/3.3/fp-info-cache
